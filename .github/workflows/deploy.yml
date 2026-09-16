@@ -13,13 +13,22 @@
 # far better outcome than a half-deployed pair.
 #
 # Both routes below are the ones documented at https://hosting.bloxity.io/docs,
-# and both were confirmed to exist before being written here: each answers 401
-# without a token rather than 404. Nothing in this file is a guess.
+# and both were checked against the live API before being written here:
+#
+#   POST https://legion.bloxity.io/v1/apps/<gameId>/deploy          -> 401
+#   POST https://api.bloxity.io/v1/hosting/games/<gameId>/frontend  -> 401
+#
+# 401 rather than 404 is the point: an unauthenticated request proves the route
+# EXISTS without deploying anything. A deliberately invented neighbour of each
+# ("/client") answers 404 on both hosts, so the 401s are meaningful rather than
+# a blanket rejection. Nothing in this file is a guess.
 name: Deploy to Bloxity
 
 on:
   push:
-    branches: [dev, main, master]
+    # dev -> the DEV channel, main -> the PROD channel. Exactly two branches
+    # publish, so there is no third one that could quietly reach players.
+    branches: [dev, main]
   workflow_dispatch:
     inputs:
       channel:
@@ -37,13 +46,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BLOXITY_GAME_ID: robot-obby-escape
-
-  # The repository is named "-1_speed_robot_escape", and a Docker reference may
-  # not begin with a dash - so the image is named explicitly rather than derived
-  # from the repo. The shape still matches what the docs expect:
-  # ghcr.io/<owner>/<game>-server.
-  IMAGE_NAME: ghcr.io/saycheesexd/robot-obby-escape-server
+  # THE GAME ID REGISTERED ON BLOXITY. Every route, every hostname and the
+  # image name are built from this one string, so a game renamed on Bloxity is
+  # a one-line change here.
+  BLOXITY_GAME_ID: speed-robot-escape
 
   # The room's player cap, and the same number as MAX_PLAYERS_PER_ROOM. Legion
   # fills a pod to seatCap and then spawns the next one, so this MUST equal the
@@ -55,10 +61,11 @@ env:
 
   # Two DIFFERENT hosts, and that is not a typo: the control plane that rolls
   # container images is legion.bloxity.io, while the static-frontend upload
-  # lives on api.bloxity.io. Overridable as repository variables so a change on
-  # Bloxity's side stays a settings edit rather than a commit.
-  LEGION_API: ${{ vars.LEGION_API_BASE || 'https://legion.bloxity.io' }}
-  HOSTING_API: ${{ vars.HOSTING_API_BASE || 'https://api.bloxity.io' }}
+  # lives on api.bloxity.io. Both are written out rather than hidden behind
+  # repository variables - the routes are documented and were verified, and a
+  # settings knob nobody has set is just a second place for them to be wrong.
+  LEGION_API: https://legion.bloxity.io
+  HOSTING_API: https://api.bloxity.io
 
 jobs:
   # Which channel this run publishes to, decided once so both jobs agree.
@@ -90,6 +97,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GHCR references must be entirely lower case, and a GitHub account name
+      # need not be: this repository's owner is "sayCHEESExD". Lowercasing the
+      # owner here is what keeps the image name valid without hardcoding
+      # somebody's login into the file.
+      - name: Resolve the image name
+        id: image
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "name=ghcr.io/${OWNER}/${BLOXITY_GAME_ID}-server" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -112,8 +129,8 @@ jobs:
           # package list. Deploying the moving one would mean a re-run could
           # roll out whatever a later push had since overwritten.
           tags: |
-            ${{ env.IMAGE_NAME }}:${{ needs.channel.outputs.name }}-${{ github.sha }}
-            ${{ env.IMAGE_NAME }}:${{ needs.channel.outputs.name }}
+            ${{ steps.image.outputs.name }}:${{ needs.channel.outputs.name }}-${{ github.sha }}
+            ${{ steps.image.outputs.name }}:${{ needs.channel.outputs.name }}
           # A layer cache in the registry, so an unchanged lockfile does not
           # re-run "npm ci" on every push.
           cache-from: type=gha
@@ -123,6 +140,7 @@ jobs:
         env:
           TOKEN: ${{ secrets.LEGION_DEPLOY_TOKEN }}
           CHANNEL: ${{ needs.channel.outputs.name }}
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
         run: |
           set -euo pipefail
           if [ -z "${TOKEN:-}" ]; then
@@ -201,10 +219,12 @@ jobs:
           # Baked in at build time - Vite has no later step in which to inject
           # them, so a change here means a rebuild.
           VITE_BLOXITY_GAME_ID: ${{ env.BLOXITY_GAME_ID }}
-          # The Colyseus endpoint for this channel. Per-channel because dev and
-          # prod are separate backends. The defaults are this game's own Bloxity
-          # backend hosts; a repository variable overrides them.
-          VITE_SERVER_URL: ${{ needs.channel.outputs.name == 'prod' && (vars.SERVER_URL_PROD || 'wss://robot-obby-escape.host.bloxity.io') || (vars.SERVER_URL_DEV || 'wss://robot-obby-escape.dev.host.bloxity.io') }}
+          # The Colyseus endpoint for this channel, baked into the bundle.
+          # Per-channel because dev and prod are separate backends, and wss://
+          # because the page is served over https and a browser will not open
+          # an insecure socket from a secure page. These are the documented
+          # Bloxity backend hostnames for this game id.
+          VITE_SERVER_URL: ${{ needs.channel.outputs.name == 'prod' && 'wss://speed-robot-escape.host.bloxity.io' || 'wss://speed-robot-escape.dev.host.bloxity.io' }}
         run: |
           set -euo pipefail
           echo "VITE_BLOXITY_GAME_ID=$VITE_BLOXITY_GAME_ID"

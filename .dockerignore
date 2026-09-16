@@ -33,6 +33,17 @@ dist
 client/*
 !client/package.json
 
+# The game's static art, audio and the player FBX. They are served to the
+# BROWSER from the Vite build and uploaded to Bloxity Hosting as part of the
+# client zip; the Colyseus server never opens one, and the Dockerfile never
+# copies them. Three megabytes that would otherwise be sent to the builder on
+# every push for nothing.
+assets
+
+# Repository verification scripts: course, barrier, progression, capacity and
+# the asset digests. They run in CI against the checkout, not in the image.
+scripts
+
 # Player profiles are runtime state and belong on a mounted volume.
 server/data
 

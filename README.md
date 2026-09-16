@@ -141,7 +141,7 @@ Thirty stages, each authored, each with one idea, and each visually distinct.
 
 |  # | Section                    | The idea                                        |    Wins |
 | -: | -------------------------- | ----------------------------------------------- | ------: |
-|  1 | **Mech Hangar Escape**     | Floating blocks over glowing coolant             |       5 |
+|  1 | **Mech Hangar Escape**     | Floating blocks over glowing coolant             |       1 |
 |  2 | Reactor Platform           | Huge blocks falling slowly, wide gaps to walk    |       3 |
 |  3 | Falling Machinery          | Platforms that drop away, one always up          |       8 |
 |  4 | Industrial Maze            | Lit walls on a grid, one route through           |      15 |
@@ -178,9 +178,9 @@ violet in the deep machine spaces, and magenta closing the run at the reactor.
 The architecture is deliberately the same building all the way down; the light
 is what tells you which part of it you are in.
 
-Stage 1 pays more than stage 2 on purpose: the first clear is a welcome bonus,
-fat enough to put a new player straight onto the second mech. From stage 2 the
-ladder only climbs.
+Stage 1 pays a single Win on purpose: it is the token that proves the loop
+works, not a rung on the ladder. The climb proper starts at stage 2 and never
+steps down again.
 
 Each stage is announced by **floating text and nothing else** - "STAGE 4"
 hanging over the mouth of it, with no panel, frame or billboard between you and
@@ -273,14 +273,37 @@ completely normally.
 
 ## Deployment
 
-Two hosts, and the split is not negotiable: Netlify serves static files and
-cannot run a WebSocket server, so the client is deployed there and the Colyseus
-server runs as a long-lived Node process somewhere else.
+The game is registered on Bloxity Hosting as **`speed-robot-escape`**, and
+deploying is pushing a branch:
+
+| Branch | Channel | Backend                                     | Frontend                                    |
+| ------ | ------- | ------------------------------------------- | ------------------------------------------- |
+| `dev`  | dev     | `speed-robot-escape.dev.host.bloxity.io`    | `speed-robot-escape.dev.play.bloxity.io`    |
+| `main` | prod    | `speed-robot-escape.host.bloxity.io`        | `speed-robot-escape.play.bloxity.io`        |
+
+`.github/workflows/deploy.yml` does both halves of a release:
 
 ```
-Netlify   ──  @robot/client      static files, built by Vite
-Node host ──  @robot/server      Colyseus, one long-lived process
+GHCR + Legion ──  @robot/server   a container image, rolled by the control plane
+Bloxity Hosting ── @robot/client  a zip of the Vite build, index.html at its root
 ```
+
+The server image is tagged `<channel>-<commit sha>` and deployed by that
+IMMUTABLE tag rather than the moving `<channel>` pointer, so re-running an old
+workflow rolls out the code that run was built from. The client bundle carries
+the matching `wss://` backend URL, baked in at build time - Vite has no later
+step in which to inject one.
+
+The only secret the workflow needs is **`LEGION_DEPLOY_TOKEN`** (Settings ->
+Secrets and variables -> Actions), copied from My Games on
+hosting.bloxity.io. Nothing else is configured in the repository: the API
+hosts and routes are the documented ones and are written out in the workflow.
+
+Two hosts, and the split is not negotiable: static hosting cannot run a
+WebSocket server, so the client is served as files and the Colyseus server runs
+as a long-lived process. Netlify remains configured (`netlify.toml`) as an
+alternative home for the client; it needs `VITE_SERVER_URL` set in the site's
+environment, because nothing outside the Bloxity workflow sets it.
 
 ```bash
 npm run build
