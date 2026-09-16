@@ -17,6 +17,16 @@ import type { PlayerState } from '../rooms/state/PlayerState.js';
 interface Tracker {
   x: number;
   z: number;
+  /**
+   * Seconds of QUALIFYING movement banked toward the next Speed tick.
+   *
+   * Speed is paid in whole ticks (`SPEED.grantInterval`), so the odd fractions
+   * of a second between two inputs have to be remembered somewhere rather than
+   * paid out or thrown away. Movement that does not qualify never reaches
+   * here, so a player who walks for half a second and then stands still keeps
+   * that half second until they walk again - they are simply not paid for it.
+   */
+  banked: number;
   /** True until the first step is credited, so spawning pays nothing. */
   fresh: boolean;
 }
@@ -71,6 +81,7 @@ export class SpeedService {
     this.trackers.set(sessionId, {
       x: player.x,
       z: player.z,
+      banked: 0,
       fresh: true,
     });
   }
@@ -130,18 +141,41 @@ export class SpeedService {
         distance,
         seconds: step,
         maxDistance: this.maxCreditedStep(player, step),
+        /*
+         * THE BELT, and leaving this out is how the bay stops paying.
+         *
+         * A mech running on a treadmill covers no ground by design, so without
+         * this every belt fails the "did it actually move" test and a player
+         * pounding away on one earns nothing at all. The flag is the SERVER's
+         * own - derived by its simulation from the position it computed.
+         */
         onTreadmill: player.treadmill > 0,
       });
 
     /*
-     * The payment, and it is the rate multiplied by TIME - not by distance.
+     * THE PAYMENT, and it comes in WHOLE TICKS.
      *
-     * Time, so the figure is the same on a 30 Hz client and a 240 Hz one;
-     * distance would pay a faster mech more for the same second and make the
-     * gain fluctuate with every acceleration, which is exactly the behaviour
-     * this system was rebuilt to remove.
+     * Qualifying time is banked and every `SPEED.grantInterval` of it pays the
+     * entire rate at once, so what the player sees is "+2" from a +2 mech
+     * rather than the fraction that happened to have accumulated when the HUD
+     * next looked. Time rather than distance, so the figure is identical on a
+     * 30 Hz client and a 240 Hz one and does not fluctuate with acceleration.
+     *
+     * The loop rather than an `if`: a client that legitimately banks two
+     * intervals in one step - a long frame, a burst after a stall - is paid
+     * for both, and the remainder stays banked rather than being rounded away.
+     * The epsilon is load-bearing: sixty steps of 1/60 sum to a hair under one
+     * second in binary floating point, and without it a player walking at a
+     * steady sixty frames a second would be paid every OTHER second.
      */
-    const gained = earning ? rate * step : 0;
+    let gained = 0;
+    if (earning) {
+      tracker.banked += step;
+      while (tracker.banked + 1e-9 >= SPEED.grantInterval) {
+        tracker.banked -= SPEED.grantInterval;
+        gained += rate;
+      }
+    }
 
     tracker.x = player.x;
     tracker.z = player.z;

@@ -75,3 +75,37 @@ export const SPAWN_ROTATION_Y = 0;
  * having a visible bottom is what stops a miss reading as a bug.
  */
 export const DEATH_PLANE_Y = -16;
+
+/**
+ * Seconds a dead mech LIES WHERE IT FELL before it is placed at the spawn.
+ *
+ * THE DEATH HAPPENS WHERE THE DEATH HAPPENED. The server used to place a
+ * player on the very tick it decided they had died, which meant the fall-over
+ * animation - which is half a second long - played out in the hangar: the
+ * machine blinked out of the pit it had just dropped into and keeled over at
+ * the spawn point, in front of everybody, for no visible reason.
+ *
+ * So a death now has two halves. First the mech is FROZEN at the point it
+ * died, its input ignored and its fall-over playing for everyone who can see
+ * it; then, and only then, it is placed. This is the length of the first half,
+ * and it is shared because both sides have to agree on it: the client's
+ * `DEATH.duration` is this number, so the animation and the hold cannot drift
+ * apart and leave the mech either cut off mid-topple or lying there after it
+ * has finished.
+ */
+export const DEATH_HOLD_SECONDS = 0.55;
+
+/**
+ * Extra seconds the SERVER waits beyond the animation before placing.
+ *
+ * The client predicts its own death so it can start toppling on the frame the
+ * player can see it happen, and the server confirms it a moment later from its
+ * own simulation. The two clocks therefore start a hair apart, and a hold that
+ * was exactly the length of the animation could place the mech a few frames
+ * before it finished falling over - which is the bug this whole flow exists to
+ * remove, just smaller.
+ *
+ * A tenth of a second is longer than that gap can plausibly be on a local
+ * server and adds nothing anybody notices to a death.
+ */
+export const DEATH_PLACE_MARGIN = 0.1;

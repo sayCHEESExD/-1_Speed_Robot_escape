@@ -85,15 +85,46 @@ const BOARD = {
    * has to stay comfortably wider than the 92-unit doorway or the pair becomes
    * a pinch point in the one route every run goes through.
    */
-  width: 44,
-  height: 34,
-  /** Thickness of the steel case around the glass. */
-  frame: 3.2,
-  /** How far the whole cabinet stands off the bulkhead. */
+  width: 34,
+  height: 28,
+  /**
+   * Thickness of the steel case around the glass.
+   *
+   * SLIM. The case used to be 3.2 a side, which put six and a half units of
+   * steel on a board that had to fit into thirty-eight units of clear wall -
+   * and the outer corner ended up buried in the bulkhead. A hairline case
+   * spends the space on the screen instead, which is the part anybody reads.
+   */
+  frame: 1.8,
+  /** How far the whole cabinet stands off its stanchions. */
   depth: 3.2,
-  /** Height of the panel's bottom edge above the deck. */
-  baseY: 9,
+  /**
+   * Height of the panel's bottom edge above the deck.
+   *
+   * ABOVE THE STAIRWAYS. The gallery's front flight climbs to fifteen units a
+   * little way along the wall from here, and at nine the bottom-left corner of
+   * the wins board sat behind it from everywhere in the middle of the hangar.
+   * Starting the glass a unit clear of the deck the stairs arrive on means
+   * nothing in the room is tall enough to stand in front of it.
+   */
+  baseY: 16,
 } as const;
+
+/**
+ * How far each board is TURNED TOWARD THE ROOM, in radians.
+ *
+ * They used to sit square to the back wall, which is the one orientation that
+ * both wastes their width and drives their outer corner into the bulkhead: a
+ * flat panel spans its whole width along X, and there is not that much wall
+ * either side of a ninety-two unit doorway.
+ *
+ * Angled in, each board faces the middle of the hangar - where the player
+ * spawns and where they stand to read it - and its footprint along X shrinks
+ * by `cos(TILT)`, which is what buys the clearance. Twenty-four degrees is the
+ * compromise between the two things it has to point at: the spawn point behind
+ * and the doorway beside it.
+ */
+const TILT = (24 * Math.PI) / 180;
 
 /** Canvas pixels per world unit on the panel. Enough to read from the spawn. */
 const PIXELS_PER_UNIT = 46;
@@ -153,13 +184,35 @@ export class Scoreboard {
      * when the room was laid out; this is what it was left empty for, and it
      * stays the only thing there.
      *
-     * The spread is measured from the corridor, not from the panels: each
-     * board is pushed out until its inner edge clears the mouth of the course,
-     * so neither can ever overhang the doorway.
+     * The spread is DERIVED from two clearances rather than authored, because
+     * the board has to miss two different things and a hand-tuned number only
+     * ever misses one of them:
+     *
+     *  - its INNER edge must clear the mouth of the course, or the pair
+     *    becomes a pinch point in the one route every run goes through;
+     *  - its OUTER edge must clear the hangar wall, which is what it failed to
+     *    do before - the corner of each cabinet was sunk into the bulkhead.
+     *
+     * The footprint it is measured against is the TILTED one: a turned cabinet
+     * spans `outer * cos(TILT)` along X plus what its own depth adds, which is
+     * several units narrower than the panel itself.
+     *
+     * Each board is pushed AS FAR OUT as the wall allows rather than as close
+     * in as the doorway allows. Out is where the room is: the display deck's
+     * front stairway climbs past the inner end of this wall, and a board sat
+     * at the doorway had that staircase across the corner of it. The doorway
+     * clearance is still asserted - it just becomes the floor rather than the
+     * answer, and the two would only fight in a hangar too narrow to hold both.
      */
     const wallZ = COURSE.lobbyEndZ - 13;
     const outer = BOARD.width + BOARD.frame * 2;
-    const spread = COURSE.halfWidth + outer / 2 + 5;
+    const footprint = outer * Math.cos(TILT) + BOARD.depth * Math.sin(TILT);
+    const spread = Math.max(
+      // Never overhanging the mouth of the course...
+      COURSE.halfWidth + footprint / 2 + 4,
+      // ...and otherwise as far out as the wall behind it allows.
+      COURSE.lobbyHalfWidth - footprint / 2 - 4,
+    );
 
     const stone = this.material(
       new MeshLambertMaterial({ color: PALETTE.boardFrame }),
@@ -171,10 +224,16 @@ export class Scoreboard {
     for (const spec of BOARDS) {
       const group = new Group();
       group.position.set(spec.x * spread, 0, wallZ);
-      // Turned to face back into the hangar. A sign is single-sided, so one
-      // left facing +Z would be invisible from the only place anybody reads it
-      // from.
-      group.rotation.y = Math.PI;
+      /*
+       * Turned to face back into the hangar, and then ANGLED IN toward the
+       * middle of it.
+       *
+       * `Math.PI` alone faces -Z; the tilt is signed by which side the board
+       * stands on, so both turn toward the centre rather than both turning the
+       * same way. A sign is single-sided, so one left facing +Z would be
+       * invisible from the only place anybody reads it from.
+       */
+      group.rotation.y = Math.PI + spec.x * TILT;
 
       const midY = BOARD.baseY + BOARD.height / 2;
       const outerW = BOARD.width + BOARD.frame * 2;
@@ -212,9 +271,12 @@ export class Scoreboard {
          * The legs, and they are STRUCTURE rather than trim.
          *
          * A display this size hanging in mid-air over a hangar deck reads as a
-         * poster. Two heavy stanchions down to the floor, plus a brace back to
-         * the bulkhead behind, make it a cabinet somebody bolted in - which is
-         * the whole difference between signage and architecture.
+         * poster. Two heavy stanchions down to the deck, plus a strut out the
+         * back of the case, make it a cabinet somebody bolted in - which is
+         * the whole difference between signage and architecture. The strut is
+         * shorter than it was: the board stands ANGLED IN now rather than flat
+         * against the bulkhead, so there is no wall immediately behind it for
+         * a long brace to reach.
          */
         group.add(
           this.box(
@@ -232,10 +294,10 @@ export class Scoreboard {
             stoneDark,
             sx * (BOARD.width / 2 - 2.5),
             BOARD.baseY + 4,
-            -BOARD.depth * 2,
-            3,
-            3,
-            BOARD.depth * 4,
+            -BOARD.depth,
+            2.6,
+            2.6,
+            BOARD.depth * 2,
           ),
         );
       }

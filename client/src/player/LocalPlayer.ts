@@ -319,7 +319,14 @@ export class LocalPlayer {
     if (Number.isFinite(time)) this.params.time = time;
   }
 
-  /** True while the mount is standing on a treadmill belt. */
+  /**
+   * True while the mount is standing on a treadmill belt.
+   *
+   * The one flag that tells the rest of the client the mech is RUNNING while
+   * going nowhere. Everything that reads a speed off this player - the walk
+   * cycle, the footfalls, the trail - needs to know which of the two it is
+   * looking at.
+   */
   get onTreadmill(): boolean {
     return this.motion.treadmill > 0;
   }
@@ -697,9 +704,13 @@ export class LocalPlayer {
 
   private updateAnimation(delta: number, dying: boolean): void {
     this.animationInput.grounded = this.motion.grounded;
-    // A player on a treadmill has zero velocity by design, so the animator is
-    // handed the speed they are RUNNING at rather than the speed they are
-    // travelling at. This is the one place the two differ.
+    /*
+     * A player on a treadmill has zero velocity BY DESIGN, so the animator is
+     * handed the speed they are RUNNING at rather than the speed they are
+     * travelling at. This is the one place in the game the two differ, and it
+     * is why `onTreadmill` exists: the belt cancels the travel (`holdOnBelt`)
+     * and the machine on it is very much walking.
+     */
     this.animationInput.horizontalSpeed = this.onTreadmill
       ? this.maxRunSpeed
       : this.horizontalSpeed;

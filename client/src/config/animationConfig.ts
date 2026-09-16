@@ -1,3 +1,4 @@
+import { DEATH_HOLD_SECONDS } from '@robot/shared';
 import type { PoseDefinition } from '../animation/PoseBuffer.js';
 
 const deg = (degrees: number): number => (degrees * Math.PI) / 180;
@@ -21,9 +22,18 @@ export const GAIT = {
    * would otherwise take 130 steps a second - a strobe, not a walk. Clamping
    * the cadence means the motion stays readable at any speed and the sense of
    * pace comes from the world going past, which is where it belongs.
+   *
+   * SLOW, and deliberately slower than a person's walk. A mech is heavy: its
+   * legs are driven, they are long, and they do not hurry. At 1.35 cycles a
+   * second the fastest gait is under three footfalls a second and every one of
+   * them is a separate, readable event - which is the whole difference between
+   * a machine walking and a character scurrying. The FOOTSTEP AUDIO is clamped
+   * to match (`MAX_STEPS_PER_SECOND` in `PlayerAudio`, and the playback-rate
+   * band the walking loop is stretched over); change one and you have to
+   * change the others, or the feet and the sound come apart.
    */
-  minFrequency: 0.5,
-  maxFrequency: 2.3,
+  minFrequency: 0.32,
+  maxFrequency: 1.35,
 
   /** Below this speed the mech is standing still. */
   idleSpeed: 0.6,
@@ -155,8 +165,15 @@ export const AIR = {
 
 /** The fall-over. Readable, brief, and deliberately not gruesome. */
 export const DEATH = {
-  /** Seconds the whole animation runs before the respawn is applied. */
-  duration: 0.55,
+  /**
+   * Seconds the whole animation runs before the respawn is applied.
+   *
+   * THE SERVER'S NUMBER, not a local one. It holds the dead mech where it fell
+   * for exactly this long before placing it at the spawn, so an animation of a
+   * different length would either be cut off by the placement or leave the
+   * machine lying at the bottom of a pit after it had finished toppling.
+   */
+  duration: DEATH_HOLD_SECONDS,
   /** How far the mech keels over, in radians. */
   roll: deg(96),
   /** How far it pitches forward as it goes. */

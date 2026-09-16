@@ -8,7 +8,6 @@ import { Bloxity } from '../bloxity/Bloxity.js';
 import { AvatarDresser } from '../bloxity/AvatarDresser.js';
 import { lookFromLegion } from '../bloxity/avatarLook.js';
 import { PlayerAudio } from '../audio/PlayerAudio.js';
-import { Vector3 } from 'three';
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera.js';
 import { clientConfig } from '../config/clientConfig.js';
 import { InputManager } from '../input/InputManager.js';
@@ -28,7 +27,6 @@ import { SpeedPopups } from '../ui/SpeedPopups.js';
 import { MechShop } from '../ui/MechShop.js';
 import { TrailShop } from '../ui/TrailShop.js';
 import { BloxityPanel } from '../ui/BloxityPanel.js';
-import { WinFlight } from '../ui/WinFlight.js';
 import { WinsCounter } from '../ui/WinsCounter.js';
 import { ICONS, injectHudStyles } from '../ui/hudStyles.js';
 import { logger } from '../util/logger.js';
@@ -73,9 +71,6 @@ const isTyping = (target: EventTarget | null): boolean => {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 };
 
-/** Scratch for projecting the mount to the screen. One award allocates nothing. */
-const WIN_FLIGHT_ORIGIN = new Vector3();
-
 /**
  * Composition root.
  *
@@ -93,7 +88,6 @@ export class Game {
   private readonly hud: SpeedHud;
   private readonly pops: SpeedPopups;
   private readonly wins: WinsCounter;
-  private readonly winFlight: WinFlight;
   private readonly rail: HTMLDivElement;
   private readonly rebirthButton: RailButton;
   private readonly mechButton: RailButton;
@@ -148,7 +142,6 @@ export class Game {
     this.hud = new SpeedHud(container);
     this.pops = new SpeedPopups(container);
     this.wins = new WinsCounter(container);
-    this.winFlight = new WinFlight(container);
 
     // The left rail. Four tiles, laid out so a fifth can be added without
     // re-spacing the others.
@@ -536,6 +529,10 @@ export class Game {
 
       this.snapCameraIfPlaced();
       this.camera.setTarget(player.position);
+      // The win celebration rides the machine. It has to be told where that is
+      // every frame, because an award TELEPORTS the player home a moment after
+      // it lands - see `WinTrophies.follow`.
+      this.world.winTrophies.follow(player.position);
       this.sceneManager.followShadow(
         player.position.x,
         player.position.y,
@@ -693,42 +690,38 @@ export class Game {
     // The counter pops from the replicated total on the next patch anyway;
     // applying it here means the reward lands on the frame it was earned
     // rather than up to a patch later.
-    // Trophies first, then the figure. They are launched from where the mount
-    // actually is on screen, projected once here rather than tracked per
-    // frame - the flight is half a second and the player does not move during
-    // it, because banking a stage has already returned them to the arena.
-    this.launchWinFlight();
+    //
+    // Trophies first, then the figure: the cups gather around the machine and
+    // draw into the cockpit, in the WORLD, where the player is already looking
+    // - see `WinTrophies`.
+    this.launchWinTrophies(message.wins);
     this.wins.update(message.total);
     this.audio.play('win');
     logger.info(SCOPE, `stage ${message.stageIndex} banked: +${message.wins} wins`);
   }
 
   /**
-   * Project the mount to the screen and send the trophies from there.
+   * Burst trophies around the pilot for ONE award.
    *
-   * Falls back to the middle of the screen if there is no player yet, so the
-   * effect can never be the thing that throws during an award.
+   * Called from `onStageAwarded` and nowhere else, so it fires exactly when
+   * the SERVER says Wins were granted: standing on a win pad cannot retrigger
+   * it, and nothing in the effect polls a position to decide whether to play.
+   *
+   * @param wins the figure the server awarded, which is what decides how big
+   *             the celebration is
+   *
+   * Silent when there is no local player yet - an award cannot arrive before
+   * one exists, but the effect must never be the thing that throws during a
+   * reward if it somehow does.
    */
-  private launchWinFlight(): void {
-    const canvas = this.renderer.renderer.domElement;
-    const box = canvas.getBoundingClientRect();
-    let x = box.left + box.width / 2;
-    let y = box.top + box.height / 2;
-
+  private launchWinTrophies(wins: number): void {
     const player = this.localPlayer;
-    if (player) {
-      WIN_FLIGHT_ORIGIN.copy(player.position);
-      WIN_FLIGHT_ORIGIN.y += 2;
-      WIN_FLIGHT_ORIGIN.project(this.camera.camera);
-      // Behind the camera projects to a mirrored point in front of it, which
-      // would fling the trophies off the wrong edge.
-      if (WIN_FLIGHT_ORIGIN.z < 1) {
-        x = box.left + ((WIN_FLIGHT_ORIGIN.x + 1) / 2) * box.width;
-        y = box.top + ((1 - WIN_FLIGHT_ORIGIN.y) / 2) * box.height;
-      }
-    }
-
-    this.winFlight.play(x, y);
+    if (!player) return;
+    // Placed where the machine is NOW, and kept there by `follow` for the rest
+    // of the animation - the server returns the player to the hangar on the
+    // very next message.
+    this.world.winTrophies.follow(player.position);
+    this.world.winTrophies.play(wins);
   }
 
   private onStatusChange(status: ConnectionStatus): void {
@@ -740,7 +733,6 @@ export class Game {
     this.hud.dispose();
     this.pops.dispose();
     this.wins.dispose();
-    this.winFlight.dispose();
     window.removeEventListener('keydown', this.onHotkey);
     window.removeEventListener('keydown', this.onGesture);
     window.removeEventListener('mousedown', this.onGesture);

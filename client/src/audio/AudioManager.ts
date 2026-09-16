@@ -355,7 +355,9 @@ export class AudioManager {
      */
     const level = clamp01(pace);
     const now = ctx.currentTime;
-    this.footsteps.playbackRate.setTargetAtTime(0.85 + level * 0.5, now, 0.08);
+    // Under 1 across the whole band: the recording's own cadence is quicker
+    // than this mech's, and the gait it has to agree with is a slow one.
+    this.footsteps.playbackRate.setTargetAtTime(0.6 + level * 0.35, now, 0.08);
     this.footstepGain.gain.setTargetAtTime(0.4 + level * 0.35, now, 0.05);
     return true;
   }

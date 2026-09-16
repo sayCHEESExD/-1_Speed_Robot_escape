@@ -38,6 +38,11 @@ import {
   STAND_ROW,
   SURFACE_REGIONS,
   TRAINING,
+  WorldCollision,
+  createMotion,
+  createMovementInput,
+  createSimEvents,
+  stepPlayer,
   TREADMILL_COUNT,
   RUINS_ARENA,
   TREADMILL_BELT_Y,
@@ -383,15 +388,15 @@ console.log('win and return pads');
 console.log('stage rewards');
 {
   /*
-   * Stage 1 pays 5 and stage 2 pays 3, exactly as specified.
+   * Stage 1 pays 1 and stage 2 pays 3, exactly as specified.
    *
-   * That is the ONE step down in the whole ladder and it is deliberate: the
-   * first clear is a welcome bonus, fat enough to put a new player straight
-   * onto the second mech. Checked as literals rather than read from the table
-   * they come from, because a test that read `STAGE_REWARDS` would pass
+   * Stage 1 is the only rung that is not part of the climb: it is a token for
+   * proving the loop works, and the ladder proper starts at stage 2 and never
+   * steps down again afterwards. Checked as literals rather than read from the
+   * table they come from, because a test that read `STAGE_REWARDS` would pass
    * whatever that table said - which is the one thing it must not do.
    */
-  const EXPECTED_HEAD = [5, 3, 8, 15, 25, 40, 60, 90];
+  const EXPECTED_HEAD = [1, 3, 8, 15, 25, 40, 60, 90];
   let broken = 0;
   for (let i = 0; i < Math.min(STAGES.length, EXPECTED_HEAD.length); i += 1) {
     if (STAGES[i].winReward !== EXPECTED_HEAD[i]) {
@@ -885,6 +890,51 @@ console.log('treadmills');
   else pass(`${TREADMILL_COUNT} belts, all detected from their own centres`);
 
   if (TREADMILL_COUNT !== 3) fail(`${TREADMILL_COUNT} treadmills, expected 3`);
+
+  /*
+   * A BELT IS FLOOR, AND NOTHING ON IT GRABS THE PLAYER.
+   *
+   * There was a hold here once - the belt cancelled travel along the rig and
+   * drew the mech to the middle - and from the player's seat it read as
+   * collision in the middle of the bay. What has to be true instead is the
+   * plain thing: you can walk straight across a rig, end to end, at full
+   * speed, and nothing stops you. Checked against the real simulation, because
+   * the failure it guards against was a change to `stepPlayer`.
+   */
+  {
+    const motion = createMotion();
+    motion.x = TRAINING.maxX + 12;
+    motion.y = 0;
+    motion.z = treadmillZ(2);
+
+    const input = createMovementInput();
+    input.moveZ = 1;
+    // Camera turned a quarter turn, so "forward" is -X: into the bay, along
+    // the rigs, which is the line a hold would have stopped them on.
+    input.cameraYaw = -Math.PI / 2;
+
+    const events = createSimEvents();
+    const params = { moveMultiplier: 1, jumpVelocity: MOVEMENT.jumpVelocity, time: 0 };
+    const collision = new WorldCollision();
+
+    let steppedOn = false;
+    for (let i = 0; i < 60 * 8; i += 1) {
+      stepPlayer(motion, input, params, 1 / 60, collision, events);
+      params.time += 1 / 60;
+      if (motion.treadmill > 0) steppedOn = true;
+    }
+
+    if (!steppedOn) {
+      fail('walking into the bay never put the mech on a belt at all');
+    } else if (motion.x > TRAINING.columnX - TRAINING.beltLength / 2) {
+      fail(
+        `a belt stopped the mech at x=${motion.x.toFixed(1)}: there is something ` +
+          `holding the player in the middle of the rig`,
+      );
+    } else {
+      pass('a belt is floor: a mech walks onto one and straight across it');
+    }
+  }
 
   /*
    * THE BELTS ARE IDENTICAL, and a belt pays exactly what walking pays.

@@ -1,6 +1,8 @@
 import { Client, Room, ServerError } from '@colyseus/core';
 import {
   RobotAnimationState,
+  DEATH_HOLD_SECONDS,
+  DEATH_PLACE_MARGIN,
   MAX_PLAYERS_PER_ROOM,
   MessageType,
   SPAWN_POSITION,
@@ -116,6 +118,17 @@ export class CourseRoom extends Room<CourseState> {
 
   /** Scratch motion, so the per-tick death check allocates nothing. */
   private readonly scratch: PlayerMotion = createMotion();
+
+  /**
+   * Players who are DEAD BUT NOT YET PLACED, and how long is left of it.
+   *
+   * A death is two halves: the mech is frozen where it fell while its
+   * fall-over plays, and only then is it put back at the spawn. This is the
+   * first half - see `DEATH_HOLD_SECONDS`, and `beginDeath` for what being in
+   * here means: no input simulated, no Speed credited, and no second death
+   * triggered by the pit the body is already lying in.
+   */
+  private readonly dying = new Map<string, { remaining: number; reason: RespawnReason }>();
 
   private autosaveTimer = 0;
 
@@ -243,6 +256,9 @@ export class CourseRoom extends Room<CourseState> {
     this.robots.forget(client.sessionId);
     this.trails.forget(client.sessionId);
     this.playerIds.delete(client.sessionId);
+    // A player who disconnects mid-death has no placement coming: without this
+    // their hold would tick down for ever against a session that is gone.
+    this.dying.delete(client.sessionId);
 
     logger.info(SCOPE, `leave ${client.sessionId}`);
   }
@@ -272,6 +288,20 @@ export class CourseRoom extends Room<CourseState> {
   private onMove(client: Client, message: MoveMessage): void {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
+
+    /*
+     * A DEAD MECH DOES NOT MOVE, and it does not earn.
+     *
+     * While the fall-over is playing the machine is frozen where it died, so
+     * its input is dropped rather than simulated: gravity would otherwise walk
+     * the corpse on down through the pit it fell into and re-trigger the death
+     * it is already having, and `credit` would pay for the drop.
+     *
+     * The client is frozen too and sends neutral input through this window; it
+     * keeps sending SOMETHING on purpose, so the flow of inputs never stops and
+     * the server can tell a dying player from one whose connection died.
+     */
+    if (this.dying.has(client.sessionId)) return;
 
     if (
       !this.movement.applyInput(client.sessionId, player, message, this.state.elapsed)
@@ -412,6 +442,56 @@ export class CourseRoom extends Room<CourseState> {
    * clock the server owns, rather than from a client saying it was hit. There
    * is no hazard message in this game for exactly that reason.
    */
+  /**
+   * Begin a death: freeze the mech where it fell and start the hold.
+   *
+   * The PLACEMENT is deliberately not here. It happens `DEATH_HOLD_SECONDS`
+   * later, in the tick, once the fall-over everyone can see has played out at
+   * the place it belongs to - see `DEATH_HOLD_SECONDS` for why that matters.
+   *
+   * The death COUNT is bumped here rather than at the placement, because this
+   * is the moment the player died: every other client derives its fall-over
+   * from a change in that number, so counting it at the placement would have
+   * them all topple at the spawn point half a second late.
+   */
+  private beginDeath(sessionId: string, player: PlayerState, reason: RespawnReason): void {
+    if (this.dying.has(sessionId)) return;
+    // The animation's own length PLUS the margin, so the fall-over has always
+    // finished before the placement lands - see `DEATH_PLACE_MARGIN`.
+    this.dying.set(sessionId, {
+      remaining: DEATH_HOLD_SECONDS + DEATH_PLACE_MARGIN,
+      reason,
+    });
+    player.deathCount += 1;
+    player.animation = RobotAnimationState.Dying;
+    logger.info(SCOPE, `death ${sessionId} (${reason}) at ${player.z.toFixed(0)}`);
+  }
+
+  /**
+   * Count down every held death and place the ones that have finished.
+   *
+   * Collected before placing rather than placed inside the walk, because
+   * `placeAt` writes to the very state this is iterating.
+   */
+  private tickDeaths(delta: number): void {
+    if (this.dying.size === 0) return;
+
+    const done: string[] = [];
+    for (const [sessionId, held] of this.dying) {
+      held.remaining -= delta;
+      if (held.remaining <= 0) done.push(sessionId);
+    }
+
+    for (const sessionId of done) {
+      const held = this.dying.get(sessionId);
+      this.dying.delete(sessionId);
+      const player = this.state.players.get(sessionId);
+      const client = this.clients.find((c) => c.sessionId === sessionId);
+      if (!held || !player || !client) continue;
+      this.placeAt(client, player, held.reason);
+    }
+  }
+
   private tick(delta: number): void {
     this.state.elapsed += delta;
     const time = this.state.elapsed;
@@ -443,6 +523,9 @@ export class CourseRoom extends Room<CourseState> {
 
     for (const [sessionId, player] of this.state.players) {
       if (!player.ready) continue;
+      // Already dying: the mech is frozen where it fell and its placement is
+      // counting down. Testing it again would restart the hold for ever.
+      if (this.dying.has(sessionId)) continue;
 
       const triggers = this.movement.collision.sampleTriggers(
         player.x,
@@ -453,10 +536,12 @@ export class CourseRoom extends Room<CourseState> {
       const rundown = this.guardian.hits(this.state.guardian, player);
 
       if (triggers.fell || triggers.hazard || rundown) {
-        const client = this.clients.find((c) => c.sessionId === sessionId);
-        if (client) this.respawn(client, triggers.fell ? 'fell' : 'hazard');
+        this.beginDeath(sessionId, player, triggers.fell ? 'fell' : 'hazard');
       }
     }
+
+    // Deaths that have finished their fall-over are placed now.
+    this.tickDeaths(delta);
 
     this.autosaveTimer += delta;
     if (this.autosaveTimer >= AUTOSAVE_SECONDS) {
@@ -525,9 +610,16 @@ export class CourseRoom extends Room<CourseState> {
     );
     this.speeds.reset(client.sessionId, player);
     player.animation = RobotAnimationState.Idle;
-    // A death plays the fall-over. Arriving, banking a stage and being reborn are
-    // all PLACEMENTS rather than deaths, so none of them bumps the counter.
-    if (reason === 'fell' || reason === 'hazard') player.deathCount += 1;
+    /*
+     * A placement CLEARS a death; it never starts one.
+     *
+     * The counter is bumped in `beginDeath`, at the moment the player actually
+     * died, because every other client derives its fall-over from a change in
+     * that number and they all have to topple at the place it happened. This
+     * also drops any hold still counting down, so a manual respawn during a
+     * death cannot be followed by a second placement a moment later.
+     */
+    this.dying.delete(client.sessionId);
 
     const message: RespawnMessage = {
       x: SPAWN_POSITION.x,

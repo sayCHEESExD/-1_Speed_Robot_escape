@@ -24,7 +24,7 @@ const SCOPE = 'bloxity';
  */
 export const GAME_SLUG =
   (import.meta.env['VITE_BLOXITY_GAME_ID'] as string | undefined)?.trim() ||
-  'robot-obby-escape';
+  'speed-robot-escape';
 
 /**
  * Every portal setting this game answers to.

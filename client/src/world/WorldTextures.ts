@@ -173,6 +173,73 @@ export class WorldTextures {
   }
 
   /**
+   * THE TROPHY PAD: flat gold, studded, and nothing else.
+   *
+   * The reference win area is a plain gold plate with a grid of studs on it -
+   * not the hazard chevrons this used to wear. Chevrons are a WARNING, which
+   * is exactly the wrong thing to say about the one surface in the game that
+   * pays out: a player should read "prize" off it from the far end of a stage,
+   * and stripes read "mind the gap".
+   *
+   * The studs are DELIBERATELY FAINT. They are what stops a big gold rectangle
+   * looking like a flat fill, and at the distance this is usually seen from
+   * they resolve into a texture rather than a pattern - which is what a studded
+   * plate looks like in the art this is taken from.
+   */
+  winPlate(color: string, stud: string): Texture {
+    return this.cached(`winplate:${color}:${stud}`, () => {
+      const size = 256;
+      const ctx = context(size);
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, size, size);
+
+      /*
+       * Four studs a side, and each one is a HINT.
+       *
+       * A shadow under the lip and a pale highlight on top, both nearly
+       * transparent: the gold has to stay gold. Drawn opaque they became a
+       * polka dot, which is the failure mode of every stud texture - the dots
+       * stop being surface and start being pattern.
+       *
+       * `stud` tints the highlight rather than replacing the plate, so the
+       * palette still owns what colour a lit gold plate is.
+       */
+      const cells = 4;
+      const pitch = size / cells;
+      const radius = pitch * 0.17;
+      for (let ix = 0; ix < cells; ix += 1) {
+        for (let iy = 0; iy < cells; iy += 1) {
+          const cx = (ix + 0.5) * pitch;
+          const cy = (iy + 0.5) * pitch;
+
+          ctx.fillStyle = 'rgba(0,0,0,0.13)';
+          ctx.beginPath();
+          ctx.arc(cx, cy + radius * 0.4, radius, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.globalAlpha = 0.35;
+          ctx.fillStyle = stud;
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      /*
+       * NO SEAM, unlike every other plate in the facility.
+       *
+       * The deck, the bulkheads and the catwalks all draw a panel edge,
+       * because the building is made of panels somebody bolted together. The
+       * trophy plate is ONE piece of gold - a seam every six units turned it
+       * into a tiled floor, which is the opposite of the single object the
+       * reference puts at the end of a stage.
+       */
+      return ctx.canvas;
+    });
+  }
+
+  /**
    * MOLTEN COOLANT: the glowing fluid under the platforms.
    *
    * Cracked crust over a bright melt. Kept as `sand` because the pool system

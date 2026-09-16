@@ -36,7 +36,7 @@ export class ImageBillboard {
   constructor(url: string, height: number) {
     this.geometry = new PlaneGeometry(height, height);
     this.material = new MeshBasicMaterial({
-      map: loadShared(url),
+      map: loadSharedImage(url),
       transparent: true,
       // Cut out the fully transparent border rather than blending it: a
       // billboard hanging in front of a lit platform shows its own soft edge
@@ -83,7 +83,7 @@ export class ImageBillboard {
     }
 
     // Still loading. Ask to be told, and re-read then.
-    onDecoded(texture, () => this.applyAspect());
+    onImageDecoded(texture, () => this.applyAspect());
   }
 
   dispose(): void {
@@ -109,8 +109,14 @@ const CACHE = new Map<string, Texture>();
  */
 const WAITING = new Map<Texture, (() => void)[]>();
 
-/** One decode per URL, however many billboards ask for it. */
-const loadShared = (url: string): Texture => {
+/**
+ * One decode per URL, however many billboards ask for it.
+ *
+ * Exported because the win effect hangs the SAME trophy on a pool of sprites:
+ * a second loader for `trophy.png` would be a second copy of it on the GPU for
+ * a picture already sitting there on thirty win pads.
+ */
+export const loadSharedImage = (url: string): Texture => {
   const cached = CACHE.get(url);
   if (cached) return cached;
   const texture = loader.load(url, (loaded) => {
@@ -122,8 +128,14 @@ const loadShared = (url: string): Texture => {
   return texture;
 };
 
-/** Call `notify` when this texture's image is available. */
-const onDecoded = (texture: Texture, notify: () => void): void => {
+/**
+ * Call `notify` when this texture's image is available.
+ *
+ * Exported as `onImageDecoded` for the same reason `loadSharedImage` is:
+ * anything that sizes geometry from supplied art has to wait for the file,
+ * because the aspect ratio is DRIVEN by the image and never set.
+ */
+export const onImageDecoded = (texture: Texture, notify: () => void): void => {
   const waiting = WAITING.get(texture);
   if (waiting) waiting.push(notify);
   else WAITING.set(texture, [notify]);

@@ -291,6 +291,22 @@ export const stepPlayer = (
   if (!wasGrounded && motion.grounded) events.landed = true;
 };
 
+/*
+ * THE BELT DOES NOT HOLD THE MACHINE, AND MUST NOT.
+ *
+ * There was a `holdOnBelt` here that cancelled travel along the rig and drew
+ * the mech to the middle of it, on the reasoning that a treadmill is a deck
+ * moving under a machine that stays put. It is removed, and deliberately: from
+ * the player's seat an invisible force that stops you walking and drags you to
+ * a spot is not a treadmill, it is collision in the middle of the bay - which
+ * is exactly what it was reported as.
+ *
+ * A belt is FLOOR. You walk onto it, you walk off it, and nothing grabs you.
+ * What makes it a treadmill is what it PAYS: `earnsSpeed` treats a mech
+ * standing on one as a mech running, because the deck under it is running.
+ * See `shared/src/config/speed.ts`.
+ */
+
 /**
  * One substep: move, then resolve, one axis at a time.
  *

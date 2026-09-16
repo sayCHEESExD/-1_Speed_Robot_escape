@@ -4,18 +4,20 @@ import type { AudioManager } from './AudioManager.js';
 const MIN_AUDIBLE_SPEED = 2.5;
 
 /** World units of travel between two FOOTFALLS at a walk. */
-const STRIDE_DISTANCE = 5.5;
+const STRIDE_DISTANCE = 8;
 
 /**
  * Most footfalls a second, so a late-game mech pounds rather than buzzes.
  *
  * The same clamp the walk ANIMATION uses and for the same reason: phase
  * advances with distance, and at four hundred units a second an unclamped
- * cadence is a tone, not a step. The two clamps are separate numbers because
- * they are tuned against different senses, but if either is ever changed alone
- * the mech's feet and its sound come apart.
+ * cadence is a tone, not a step. Two footfalls per cycle at the animation's
+ * `GAIT.maxFrequency` of 1.35 is 2.7 a second, and this is that figure - the
+ * two clamps are separate numbers because they are tuned against different
+ * senses, but if either is ever changed alone the mech's feet and its sound
+ * come apart.
  */
-const MAX_STEPS_PER_SECOND = 5;
+const MAX_STEPS_PER_SECOND = 2.8;
 
 /** What the audio layer needs to know about the mount. Read-only. */
 export interface PlayerAudioInput {

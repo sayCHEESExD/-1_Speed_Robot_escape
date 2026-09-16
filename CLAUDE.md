@@ -19,9 +19,10 @@ file follows from them:
   pilot's height and the camera is framed to make that obvious.
 - The broom's flight meter is **gone**. A mech walks and jumps, and there is no
   second airborne mechanic. There is no sprint either: **one gait**.
-- **Speed is earned by WALKING FORWARD, and by nothing else.** Standing still
-  earns zero. That is the "+1" of the title - a fixed amount per second ON THE
-  MOVE - and the reason to keep running is that stopping stops the income.
+- **Speed is earned by WALKING FORWARD, or by standing on a treadmill.**
+  Standing anywhere else earns zero. That is the "+1" of the title - a fixed
+  amount per second on the move - and the belt is the one place a parked mech
+  earns, because the deck under it is doing the walking.
 
 ## Technology (fixed)
 
@@ -104,15 +105,46 @@ against a wall earns nothing either, because the mech is not going anywhere.
   identical on a 30 Hz client and a 240 Hz one; distance would pay a faster
   mech more for the same second and make the number fluctuate with every
   acceleration.
+- **It is paid in WHOLE TICKS**, one per `SPEED.grantInterval` (a second) of
+  qualifying movement, each worth the entire rate. A "+2 Speed/s" mech pays two
+  in one go and the popup reads "+2" — the same figure as the bay plate, the
+  shop row and the HUD. Dribbling it out continuously was arithmetically
+  identical and read completely differently: a +2 mech showed "+1" popups for
+  ever, because the fraction banked when the popup fired was never its rate.
+  The leftover fraction of a second stays banked on the tracker.
 - A step earns only if all three hold: the client asked to go **forward**
   (`moveZ > 0` - the W key), the **authoritative position actually moved** by
   more than `SPEED.movingSpeed` a second, and the movement was **possible**
   (anything past `creditSlack` is a teleport and pays nothing). The forward
   intent is read from the input the SERVER sanitised, so "was walking forward"
   and "did move forward" cannot disagree.
-- **A treadmill pays exactly what walking pays**, and only while the player is
-  actually running on it. The belt satisfies "the machine is walking" with the
-  ground moving instead of the mech; it adds nothing on top. There are **no
+- **A treadmill pays exactly what walking pays, for STANDING ON IT.** No key
+  held, no ground covered: a mech on a running deck is walking, and the belt is
+  covering the ground instead of the machine. It adds nothing on top - no
+  bonus, no tier, no multiplier - so the bay is a PLACE to farm rather than a
+  better rate.
+- **NOTHING ON A BELT HOLDS THE PLAYER.** There was a `holdOnBelt` in
+  `stepPlayer` that cancelled travel along the rig and drew the mech to the
+  middle of it; from the seat that is not a treadmill, it is collision in the
+  middle of the bay, and it was reported as exactly that. A belt is FLOOR: walk
+  on, walk across, walk off. `verify-course` drives the real simulation across
+  one and fails if anything stops it.
+- **THE BELT IS THREE THINGS THAT HAVE TO AGREE**, and it has been broken twice
+  by changing one of them alone: `SpeedService` passes `onTreadmill` into
+  `earnsSpeed` (leave it out and every belt fails the "did it actually move"
+  test and pays nothing), `earnsSpeed` tests that flag FIRST, and both
+  `LocalPlayer` and `RemotePlayer` hand the ANIMATOR the speed the mech is
+  running at while handing the TRAIL a zero. Remove any one and the bay looks
+  fine and does nothing.
+- **THE BELT HOLDS THE MACHINE**, and that is what makes a treadmill a
+  treadmill. `holdOnBelt` in `stepPlayer` drives travel along the belt's own
+  axis (X) toward the middle of the rig while the mech is grounded on one, so
+  running goes nowhere and a machine that walks on at the lip is carried onto
+  the tread rather than parked half off it. Z is deliberately untouched: stepping SIDEWAYS is
+  how you get off, exactly as on a real treadmill, and cancelling both axes
+  would trap the player on it. Without this the belts were a detection zone and
+  nothing else — hold W and the mech walked off the end, which is why the bay
+  quietly stopped paying the moment Speed began requiring real movement. There are **no
   tiers, no level gates and no multipliers** on any belt, and `verify-course`
   fails if a tier table reappears.
 - The level curve is `baseRequirement` 100 and `growth` 1.1, which produces
@@ -221,10 +253,16 @@ Procedural, and required for the finished game — not a placeholder.
 - **The bob runs at DOUBLE the phase.** A biped's hips rise and fall on every
   footfall and there are two per stride; bobbing once per cycle reads as a limp.
 - Gait phase advances with **distance**, not wall-clock time — but the cadence
-  is CLAMPED (`GAIT.maxFrequency`). A late-game mech covers four hundred units
-  a second, and an unclamped cycle would strobe. The sense of pace comes from
-  the world going past. The FOOTSTEP SOUND is clamped the same way and for the
-  same reason; change one and you have to change the other.
+  is CLAMPED (`GAIT.maxFrequency`, 1.35 cycles a second). A late-game mech
+  covers four hundred units a second, and an unclamped cycle would strobe. The
+  sense of pace comes from the world going past.
+- **The clamp is SLOW on purpose.** A mech is heavy, its legs are long and
+  driven, and it does not hurry: under three footfalls a second at full pelt,
+  every one of them a separate readable event. THREE numbers carry that one
+  decision — `GAIT.maxFrequency`, `MAX_STEPS_PER_SECOND` in `PlayerAudio` (two
+  footfalls per cycle, so 2.8) and the playback-rate band the walking loop is
+  stretched over in `AudioManager.setFootsteps`. Change one alone and the
+  mech's feet and its sound come apart.
 - The robot runs first and hands the rider its **gait phase** and its **air
   blend**, so both halves bounce to one cycle rather than to two clocks that
   drift apart.
@@ -368,6 +406,45 @@ Procedural, and required for the finished game — not a placeholder.
   glass, a lit bezel, and text drawn with a bloom of its own colour. The bay
   nameplates, the calibration board and the command displays are all the same
   object at different sizes.
+- **A WIN PAD IS A GOLD PLATE IN A DARK PLINTH.** One continuous studded gold
+  surface (`winPlate`, and it is the ONE plate in the facility with no panel
+  seam - the trophy pad is a single object, not a tiled floor), set into a dark
+  border a little larger than it, with a handful of small cups standing on it
+  and "+N Wins" in fat gold over "Return" in white hanging above. Chevrons were
+  wrong here and are gone: stripes are a WARNING, and this is the one surface
+  in the game that pays out. The cups are ninety quads in ONE merged mesh
+  facing back down the course, not ninety billboards.
+- **THE WIN PADS GLOW, AND THEY BREATHE.** A trophy pad is the one surface in
+  the game that is a REWARD rather than a route, so it burns warm gold and
+  pulses on a slow sine - `WIN_GLOW` in `CourseWorld`, one table driving three
+  things that must never drift apart: the pad's own emissive, the additive
+  halo lying over it and the bob of the trophy hanging above. The whole
+  course's celebration is two property writes and thirty transforms a frame,
+  because the pads share their materials and the halos are ONE merged mesh.
+- **AN AWARD IS TROPHIES IN THE WORLD, NOT ON THE HUD.** `WinTrophies` throws
+  sprites of the supplied `trophy.png` OUT of the machine, hangs them for a
+  beat, then draws them back INTO the cockpit, fading and shrinking so each is
+  spent exactly as it arrives. The order carries the meaning: out first is a
+  celebration, in afterwards is the prize being collected, and a cup that
+  arrived at full size and blinked out would read as deleted.
+  - **HOW MANY CUPS IS THE SERVER'S OWN FIGURE**, logarithmically, because
+    rewards run from 1 to 350,000 and anything linear is four cups for twenty
+    stages and a wall of gold for the last one.
+  - **ONE AWARD IS ONE CELEBRATION.** `play` is called from `onStageAwarded`
+    and nowhere else, so it fires when Wins are actually granted; nothing in it
+    polls a pad or a position, and standing on a win area cannot retrigger it.
+  - **IT FOLLOWS THE MECH EVERY FRAME (`follow`), and that is not an
+    optimisation to undo.** Banking a stage makes the server send the award AND
+    THEN TELEPORT THE PLAYER HOME, in that order. An effect that snapshotted
+    the position when the award landed played at the win pad - four hundred
+    units behind a player who arrived in the hangar to see nothing at all. The
+    rendering was never the problem; the celebration was playing in an empty
+    room.
+  - SPRITES (one camera-facing quad each, one shared texture, `depthTest` off
+    so the far half of the fan is not swallowed by the mech) from a pool
+    allocated once. `update` returns on its first line when none is flying, and
+    the effect touches no physics, input or state - it is handed a position and
+    a figure and it draws.
 - **STAGE INDICATORS ARE FLOATING TEXT AND NOTHING ELSE.** "STAGE 1" over the
   first stage, "STAGE 2" over the second, with no panel, no frame, no jambs and
   no slab across the course. `CanvasSign` clears to transparent, so what hangs
@@ -402,6 +479,20 @@ Procedural, and required for the finished game — not a placeholder.
 - **Deaths are decided on the server tick**, from the position it simulated and
   the clock it owns. The client predicts a death only to start drawing the
   fall-over on the right frame.
+- **A DEATH HAS TWO HALVES, AND THE PLACEMENT IS THE SECOND ONE.** The mech is
+  FROZEN WHERE IT FELL for `DEATH_HOLD_SECONDS + DEATH_PLACE_MARGIN` - input
+  dropped, no Speed credited, no second death triggered by the pit it is lying
+  in - and only then is it put at the spawn. Placing on the tick the death was
+  decided is what made the fall-over play out in the hangar: the machine
+  blinked out of the pit and keeled over at the spawn point in front of
+  everybody. `beginDeath` starts the hold and `tickDeaths` ends it.
+  - The death COUNT is bumped in `beginDeath`, not in `placeAt`. Every other
+    client derives its fall-over from a change in that number, so counting it
+    at the placement would have all of them topple at the spawn, late.
+  - The client's `DEATH.duration` IS `DEATH_HOLD_SECONDS`, and the server waits
+    a margin beyond it, because the client predicts its death a moment before
+    the server confirms it and a hold exactly as long as the animation can
+    still cut off the last few frames.
 - **THERE ARE NO CHECKPOINTS, and there must not be any.** Every placement — a
   death, a stage banked, a rebirth, a fresh join — puts the player at
   `SPAWN_POSITION` and nowhere else. `CourseRoom.placeAt` takes no position for

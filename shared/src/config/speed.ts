@@ -4,18 +4,35 @@ import { trailMultiplier } from './trails.js';
 /**
  * Speed farming and the level curve.
  *
- * SPEED IS EARNED BY WALKING FORWARD, AND BY NOTHING ELSE.
+ * SPEED IS EARNED BY WALKING FORWARD - OR BY RUNNING A BELT.
  *
  * There is no passive tick, no per-second income for existing, no jump bonus,
  * no distance bonus, no sprint bonus and no treadmill bonus. A player standing
- * still earns exactly nothing, however long they stand there, and a player
- * holding W against a wall earns exactly nothing either - the mech has to
- * actually be under way.
+ * in the middle of the hangar earns exactly nothing, however long they stand
+ * there, and a player holding W against a wall earns exactly nothing either -
+ * the mech has to actually be under way.
+ *
+ * A TREADMILL IS THE ONE PLACE A STATIONARY MECH EARNS, and it is not really
+ * an exception: a machine on a running deck IS walking, and the only reason it
+ * covers no ground is that the belt is covering it instead. So the bay pays
+ * the ordinary rate for as long as a mech is standing on a rig - no bonus, no
+ * tier, no multiplier, and no key to hold, because holding one would just walk
+ * the player off the end of the belt. Farming is therefore a PLACE the player
+ * has to walk to and stay in, which is what the bay was built for.
  *
  * While it IS under way the rate is fixed, and it is the product of exactly
  * three things:
  *
  *     equipped robot's Speed/s  x  rebirth multiplier  x  trail multiplier
+ *
+ * IT IS PAID IN WHOLE TICKS, one every `SPEED.grantInterval` of movement, and
+ * each tick is worth that entire product. A mech that says "+2 SPEED/S" pays
+ * TWO in one go, once a second, and the popup over the player's head reads
+ * "+2" - the same figure as the mech's own rating and the same figure the shop
+ * advertises. Dribbling it out continuously was arithmetically identical and
+ * read completely differently: a +2 mech spent its whole life showing "+1"
+ * popups, because the fraction that had accumulated when the popup fired was
+ * never the mech's rate.
  *
  * Nothing else may enter it. Not level, not distance covered, not how long the
  * step was in the sense of paying more for a longer one, not a random roll,
@@ -29,6 +46,16 @@ import { trailMultiplier } from './trails.js';
  * both; the client only ever displays the replicated total.
  */
 export interface SpeedConfig {
+  /**
+   * Seconds of movement one Speed tick is worth.
+   *
+   * The whole rate is paid at each of these and nothing is paid between them,
+   * so what the player sees float up is the mech's own figure rather than
+   * whatever fraction had piled up. One second, because the rate the whole
+   * game advertises is a rate PER SECOND - "+2 Speed/s" on the bay plate, the
+   * shop row and the HUD all mean this tick.
+   */
+  readonly grantInterval: number;
   /**
    * Ground speed below which the mech counts as NOT MOVING, in units/second.
    *
@@ -62,6 +89,7 @@ export interface SpeedConfig {
  * numbers.
  */
 export const SPEED: SpeedConfig = {
+  grantInterval: 1,
   movingSpeed: 1.5,
   creditSlack: 1.6,
   baseRequirement: 100,
@@ -109,7 +137,9 @@ export interface EarningStep {
  * THREE conditions, and all three must hold:
  *
  *  1. The player asked to go forward. W, or the stick pushed forward. Not
- *     strafing, not reversing, not nothing.
+ *     strafing, not reversing, not nothing. A TREADMILL SKIPS THIS: the belt
+ *     is doing the walking, and a key held on one would only carry the player
+ *     off the rig.
  *  2. The mech ACTUALLY MOVED. Held against a wall, wedged in a corner or
  *     stopped dead by a crusher, the position does not change and the step
  *     pays nothing - holding a key is not travel.
@@ -117,15 +147,16 @@ export interface EarningStep {
  *     authoritative speed could cover is a teleport, and a teleport pays
  *     nothing at all.
  *
- * A TREADMILL satisfies (2) by running the belt instead of the ground: the
- * machine is walking, the deck is moving underneath it, and it earns the same
- * fixed rate as walking the hangar floor. Not more - there is no belt bonus,
- * no tier and no multiplier anywhere on the bay.
+ * A TREADMILL answers all three by itself, and is therefore tested FIRST: none
+ * of the three questions can sensibly be asked of a machine whose GROUND is
+ * what is moving. It earns the same fixed rate as walking the hangar floor -
+ * not more, because there is no belt bonus, no tier and no multiplier anywhere
+ * on the bay.
  */
 export const earnsSpeed = (step: EarningStep): boolean => {
-  if (!step.forward) return false;
   if (step.seconds <= 0) return false;
   if (step.onTreadmill) return true;
+  if (!step.forward) return false;
   if (step.distance > step.maxDistance) return false;
   return step.distance >= SPEED.movingSpeed * step.seconds;
 };

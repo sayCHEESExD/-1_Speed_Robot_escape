@@ -138,7 +138,13 @@ export const injectHudStyles = (): void => {
 /* ---- Left rail ---------------------------------------------------------- */
 .aoe-rail {
   position: fixed;
-  left: max(10px, env(safe-area-inset-left, 0px));
+  /*
+   * Far enough in for the KEY CAPS to fit.
+   *
+   * Each cap hangs six pixels off the top-left corner of its tile, so a rail
+   * pinned tight to the edge puts half of every hint off the screen.
+   */
+  left: max(18px, env(safe-area-inset-left, 0px));
   top: 50%;
   transform: translateY(-50%);
   display: flex;
@@ -160,20 +166,46 @@ export const injectHudStyles = (): void => {
   position: relative;
   width: var(--aoe-rail);
   height: var(--aoe-rail);
-  border: 1px solid var(--aoe-hair);
-  border-radius: 0;
-  background: linear-gradient(160deg, var(--aoe-steel-lit), var(--aoe-steel));
-  clip-path: polygon(
-    14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px
-  );
+  /*
+   * THE BUTTON ITSELF CARRIES NOTHING AND CLIPS NOTHING.
+   *
+   * The chamfered plate used to be drawn on this element, with a clip-path
+   * cutting its corners - and a clip-path clips DESCENDANTS. Everything a rail
+   * tile hangs outside its own box was therefore invisible: the key cap on the
+   * corner, the name under it and the alert pip. The plate now lives on the
+   * ::before pseudo-element, which is clipped on its own and clips nothing
+   * else. NO BACKTICKS ANYWHERE IN THIS FILE: the stylesheet is a template
+   * literal, and one would end it.
+   */
+  border: 0;
+  background: none;
   display: grid;
   place-items: center;
   cursor: pointer;
   padding: 0;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(216, 255, 58, 0.05);
-  transition: transform 110ms ease, box-shadow 140ms ease;
+  transition: transform 110ms ease;
 }
-.aoe-tile:hover {
+/* The plate: chamfered, lit along the edge, and BEHIND everything else. */
+.aoe-tile::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 1px solid var(--aoe-hair);
+  border-color: inherit;
+  background: linear-gradient(160deg, var(--aoe-steel-lit), var(--aoe-steel));
+  clip-path: polygon(
+    14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px
+  );
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(216, 255, 58, 0.05);
+  transition: box-shadow 140ms ease;
+}
+/* The icon, the key cap, the name and the pip all sit ON the plate. */
+.aoe-tile > * {
+  position: relative;
+  z-index: 1;
+}
+.aoe-tile:hover::before {
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5), inset 0 0 26px rgba(216, 255, 58, 0.22);
 }
 .aoe-tile:hover { transform: scale(1.06); }
@@ -209,12 +241,24 @@ export const injectHudStyles = (): void => {
  * label owns the bottom edge - the corner is the only place it can sit without
  * covering something that was there first.
  */
+/*
+ * THE KEY CAP: which key opens this panel, on the corner of the plate.
+ *
+ * Small and quiet - a hairline chip in the facility's own lime, sized to the
+ * one character it carries. It is a HINT rather than a label: a player who
+ * already knows the key should be able to stop seeing it, which is why it is
+ * eleven pixels of monospace on a dark chip rather than anything with a
+ * background bright enough to compete with the icon underneath.
+ *
+ * Sat on the top-left corner, where the plate's chamfer is: the cut corner is
+ * the one piece of the tile with nothing behind it.
+ */
 .aoe-tile__key {
   position: absolute;
-  left: -7px;
-  top: -7px;
-  min-width: 22px;
-  height: 22px;
+  left: -6px;
+  top: -6px;
+  min-width: 20px;
+  height: 20px;
   padding: 0 4px;
   box-sizing: border-box;
   border: 1px solid var(--aoe-hair);
@@ -224,8 +268,9 @@ export const injectHudStyles = (): void => {
   color: var(--aoe-lime);
   font-family: var(--aoe-mono);
   font-size: 11px;
-  line-height: 20px;
+  line-height: 18px;
   text-align: center;
+  letter-spacing: 0;
   pointer-events: none;
 }
 /* Touch has no keyboard, so the mobile layout keeps exactly what it had. */
@@ -271,6 +316,11 @@ body.aoe-touch-mode .aoe-tile__key { display: none; }
  * it. A dark plate with a coloured edge is still instantly tellable apart at a
  * glance, and it belongs to the building.
  */
+/*
+ * The border colour is set on the BUTTON and inherited by the plate, so each
+ * tile still states its accent once - and the icon, which draws in
+ * currentColor, takes the matching text colour from the same rule.
+ */
 .aoe-tile--rebirth { border-color: rgba(255, 47, 208, 0.75); color: #ff7ae0; }
 .aoe-tile--mech { border-color: rgba(216, 255, 58, 0.8); color: var(--aoe-lime); }
 .aoe-tile--trail { border-color: rgba(0, 229, 255, 0.75); color: var(--aoe-cyan); }
@@ -281,58 +331,6 @@ body.aoe-touch-mode .aoe-tile__key { display: none; }
 /* Muted: the tile stays lit enough to find, and plainly off. */
 .aoe-tile--off { filter: saturate(0.25) brightness(0.7); }
 .aoe-tile--off .aoe-icon { opacity: 0.55; }
-
-/* ---- Trophies flying to the Wins counter --------------------------------
- * Above the HUD, unlike the Speed popups: these are meant to arrive AT the
- * counter, so passing behind it would hide the moment they exist for. They
- * last about half a second and nothing can be clicked through them.
- */
-.aoe-flight {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 30;
-}
-.aoe-flight__cup {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: clamp(26px, 3vw, 40px);
-  height: auto;
-  opacity: 0;
-  will-change: transform, opacity;
-  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
-}
-.aoe-flight__cup[hidden] { display: none; }
-.aoe-flight__cup--run { animation: aoe-flight 620ms cubic-bezier(0.4, 0, 0.5, 1) forwards; }
-@keyframes aoe-flight {
-  0% {
-    opacity: 0;
-    transform: translate(calc(var(--aoe-fx) - 50%), calc(var(--aoe-fy) - 50%)) scale(0.4) rotate(0deg);
-  }
-  18% {
-    opacity: 1;
-    transform: translate(calc(var(--aoe-fx) - 50%), calc(var(--aoe-fy) - 50%)) scale(1.1) rotate(-20deg);
-  }
-  60% {
-    opacity: 1;
-    transform: translate(calc(var(--aoe-mx) - 50%), calc(var(--aoe-my) - 50%)) scale(0.95) rotate(140deg);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(calc(var(--aoe-tx) - 50%), calc(var(--aoe-ty) - 50%)) scale(0.35) rotate(340deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  /* Still travels - that is the information - but without the tumble. */
-  .aoe-flight__cup--run { animation: aoe-flight-plain 620ms ease-out forwards; }
-  @keyframes aoe-flight-plain {
-    0% { opacity: 0; transform: translate(calc(var(--aoe-fx) - 50%), calc(var(--aoe-fy) - 50%)); }
-    20%, 70% { opacity: 1; }
-    100% { opacity: 0; transform: translate(calc(var(--aoe-tx) - 50%), calc(var(--aoe-ty) - 50%)); }
-  }
-}
 
 /* ---- The Rebirth panel ---------------------------------------------------
  * A BEFORE and AFTER pair with an arrow between them, as the reference art

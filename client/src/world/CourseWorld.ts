@@ -10,14 +10,19 @@ import {
   STAGES,
   TRAINING,
   WIDE_AREAS,
+  WIN_PAD,
   WorldCollision,
   type CourseSolid,
   type SolidKind,
 } from '@robot/shared';
 import {
+  AdditiveBlending,
+  DoubleSide,
   Group,
   Mesh,
+  MeshBasicMaterial,
   MeshLambertMaterial,
+  PlaneGeometry,
   Scene,
   type BufferGeometry,
   type Material,
@@ -27,7 +32,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { accentForStage, PALETTE, SCENERY } from '../config/worldVisuals.js';
 import { RobotStands } from './RobotStands.js';
 import { CanvasSign } from './CanvasSign.js';
-import { ImageBillboard } from './ImageBillboard.js';
+import { loadSharedImage, onImageDecoded } from './ImageBillboard.js';
+import { WinTrophies } from './WinTrophies.js';
 import { Scoreboard } from './Scoreboard.js';
 import { Guardian } from './Guardian.js';
 import { Hazards } from './Hazards.js';
@@ -40,6 +46,49 @@ import { texturedBox } from './texturedBox.js';
 
 /** World units one repeat of a tiling texture covers. */
 const TILE = 6;
+
+/**
+ * The win pads' glow, and the breath it runs on.
+ *
+ * ONE table, because the pad, the halo lying over it and the trophy bobbing
+ * above it all ride the same sine - and three effects that drifted apart would
+ * read as three things happening near each other rather than as one pad being
+ * alive. `rate` is radians a second: a breath every three seconds or so, slow
+ * enough to be felt rather than watched.
+ */
+/**
+ * The dark plinth the gold plate is inset into, and the cups standing on it.
+ *
+ * `margin` is how much dark border shows around the plate on every side, which
+ * is the whole reason the plinth exists. The cups are authored as fractions of
+ * the pad so they stay where they are meant to be if a pad is ever resized.
+ */
+const PLINTH = { margin: 1.8, height: 0.42 } as const;
+
+/** World units tall a pad cup is, before its own scale. */
+const CUP_HEIGHT = 2.6;
+
+/**
+ * Where the cups stand, as fractions of the pad's half-extent.
+ *
+ * Scattered rather than ranked: the reference has a few sitting about the
+ * plate as though somebody put them down, and a neat row would read as
+ * furniture. One hovers - the little one off the front corner - because a
+ * prize that is all on the floor has nothing drawing the eye up to the sign.
+ */
+const CUPS = [
+  { x: -0.62, z: 0.34, scale: 1, lift: 0 },
+  { x: 0.46, z: -0.18, scale: 0.86, lift: 0 },
+  { x: -0.18, z: 0.72, scale: 0.62, lift: 1.9 },
+] as const;
+
+const WIN_GLOW = {
+  base: 0.35,
+  swing: 0.3,
+  haloBase: 0.16,
+  haloSwing: 0.16,
+  rate: 2.1,
+} as const;
 
 /**
  * The supplied trophy art, served from the repo-level `assets/` folder.
@@ -98,8 +147,30 @@ export class CourseWorld {
   private readonly textures = new WorldTextures();
   private readonly materials: Material[] = [];
   private readonly winSigns: CanvasSign[] = [];
-  /** The trophy hanging over each win pad. Supplied art, used as it is. */
-  private readonly trophies: ImageBillboard[] = [];
+  /**
+   * The little cups sitting on every win pad, as ONE merged mesh.
+   *
+   * Held so the idle bob is a single transform for the whole course. Built
+   * once the trophy art has decoded - see `buildWinPadCups`.
+   */
+  private cupMesh: Mesh | null = null;
+
+  /**
+   * The win pads' own glow, and the halo lying over them.
+   *
+   * Held as fields so the pulse is TWO numbers written per frame for the whole
+   * course - one emissive intensity and one opacity, both on materials shared
+   * by all thirty pads. A per-pad animation would be thirty objects touched
+   * every frame for an effect nobody is looking at from more than one of them.
+   */
+  private winPadMaterial: MeshLambertMaterial | null = null;
+  private winHaloMaterial: MeshLambertMaterial | null = null;
+
+  /** The trophy burst an award plays. Lives here so the world owns its scene. */
+  readonly winTrophies = new WinTrophies();
+
+  /** Free-running clock for the win pads' idle pulse. */
+  private glowTime = 0;
 
   constructor() {
     this.buildSolids();
@@ -109,6 +180,10 @@ export class CourseWorld {
     this.buildScenery();
     this.buildDecorations();
     this.buildWinPadSigns();
+
+    // The award effect lives in the world so it is torn down with it, and so
+    // the only thing `Game` has to do on a win is say where the player is.
+    this.root.add(this.winTrophies.root);
 
     this.hazards = new Hazards();
     this.root.add(this.hazards.root);
@@ -158,13 +233,16 @@ export class CourseWorld {
     this.stands.update(delta);
     this.training.update(delta);
     this.guardian.update(delta);
+    this.pulseWinPads(delta);
+    this.winTrophies.update(delta);
   }
 
   dispose(): void {
     this.textures.dispose();
     for (const material of this.materials) material.dispose();
     for (const sign of this.winSigns) sign.dispose();
-    for (const trophy of this.trophies) trophy.dispose();
+    this.cupMesh?.geometry.dispose();
+    this.winTrophies.dispose();
     this.hazards.dispose();
     this.sinking.dispose();
     this.stands.dispose();
@@ -393,6 +471,24 @@ export class CourseWorld {
          */
         const accent = accentAtZ(z);
         for (const side of [-1, 1]) {
+          /*
+           * NO COLUMN BEHIND THE CALIBRATION BAY'S SIGNAGE.
+           *
+           * The bay's board and captions hang on this wall, and a column is
+           * sixty-eight units of lit lime against a board nineteen tall: it
+           * shows above it, below it, and straight through the transparent
+           * parts of the text, which put three bright verticals across the one
+           * sign in the room. Moving the sign does not help - the column is
+           * taller than the thing in front of it from every angle a player
+           * reads it at.
+           *
+           * Only the bay's own side and only its own stretch of wall. The mech
+           * bay opposite keeps its columns, and so does every other unit of
+           * the corridor; the bay is lit by the board's own bezel and by the
+           * screens on the rigs.
+           */
+          if (side < 0 && z > TRAINING.minZ - 20 && z < TRAINING.maxZ + 20) continue;
+
           const x = side * (halfWidth - 1.6);
           const height = COURSE.wallHeight * 0.62;
           const housing = texturedBox(3.4, height + 3, 5.2, TILE);
@@ -912,30 +1008,213 @@ export class CourseWorld {
    */
   private buildWinPadSigns(): void {
     for (const stage of STAGES) {
-      const sign = new CanvasSign(13, 6.2, [
+      const sign = new CanvasSign(16, 7, [
         {
-          // Formatted, like every other large figure the player reads. The
-          // late stages pay millions, and "+5000000 WINS" is a number nobody
-          // parses at three hundred units a second.
-          text: `+${formatSpeed(stage.winReward)} WIN${stage.winReward === 1 ? '' : 'S'}`,
+          /*
+           * GOLD, and the one heavy outline left in the world.
+           *
+           * Every other sign in this facility is set in a thin hairline,
+           * because a poster face on architecture reads as a toy. This one is
+           * not architecture - it is the payout, hanging in the air over the
+           * plate, and the reference draws it as a fat gold headline with a
+           * dark rim exactly so it carries across a stage. "Wins" is plural
+           * whatever the figure is, as the art has it.
+           *
+           * Formatted, like every other large figure the player reads: the
+           * late stages pay millions, and "+5000000" is a number nobody parses
+           * at three hundred units a second.
+           */
+          text: `+${formatSpeed(stage.winReward)} Wins`,
           size: 1,
-          fill: '#ffffff',
-          stroke: '#4a3208',
-          strokeWidth: 0.08,
+          fill: '#ffc51f',
+          stroke: '#231502',
+          strokeWidth: 0.17,
         },
-        { text: 'RETURN', size: 0.6, fill: '#ffe9a8', stroke: '#3f3410' },
+        // Underneath, in white: what the pad DOES, as opposed to what it pays.
+        { text: 'Return', size: 0.58, fill: '#ffffff', stroke: '#231502', strokeWidth: 0.15 },
       ]);
-      sign.mesh.position.set(stage.winPadX, COURSE.floorY + 5.6, stage.winPadZ);
+      sign.mesh.position.set(stage.winPadX, COURSE.floorY + 6.4, stage.winPadZ);
       // Facing back down the course, at the player arriving.
       sign.mesh.rotation.y = Math.PI;
       this.root.add(sign.mesh);
       this.winSigns.push(sign);
 
-      const trophy = new ImageBillboard(TROPHY_URL, 3.4);
-      trophy.mesh.position.set(stage.winPadX, COURSE.floorY + 10.2, stage.winPadZ);
-      trophy.mesh.rotation.y = Math.PI;
-      this.root.add(trophy.mesh);
-      this.trophies.push(trophy);
+    }
+
+    this.buildWinPadPlinths();
+    this.buildWinPadHalos();
+    this.buildWinPadCups();
+  }
+
+  /**
+   * THE DARK PLINTH every trophy pad is set into.
+   *
+   * A slab a little larger than the pad and a little shallower, so what the
+   * player sees is a gold plate INSET in a dark border - which is the single
+   * thing that makes the reference pad read as an object placed on the deck
+   * rather than as a gold rectangle painted onto it. The border also does the
+   * job a drop shadow does in 2D: it separates the bright plate from whatever
+   * colour the floor happens to be in that section.
+   *
+   * Thirty of them in ONE merged mesh, like the halos.
+   */
+  private buildWinPadPlinths(): void {
+    const slabs: BufferGeometry[] = [];
+    for (const stage of STAGES) {
+      const slab = texturedBox(
+        WIN_PAD.width + PLINTH.margin * 2,
+        PLINTH.height,
+        WIN_PAD.length + PLINTH.margin * 2,
+        TILE,
+      );
+      // Sunk so its top sits just below the gold, leaving the plate proud.
+      slab.translate(
+        stage.winPadX,
+        COURSE.floorY + PLINTH.height / 2 - 0.02,
+        stage.winPadZ,
+      );
+      slabs.push(slab);
+    }
+    this.addMerged(slabs, this.solidMaterial(PALETTE.winPadRim), true);
+  }
+
+  /**
+   * A pool of warm light lying over every win pad.
+   *
+   * One flat slab a little wider than the pad, sitting just above it, additive
+   * and pulsing with the pad's own glow. It is what makes the gold read as
+   * LIGHT COMING OFF the pad rather than as a gold texture: an emissive
+   * material brightens its own pixels and stops there, and a reward should
+   * spill onto the deck around it.
+   *
+   * Thirty of them MERGED into one mesh, so the whole course's worth of
+   * celebration is a single draw call and a single opacity written per frame.
+   */
+  private buildWinPadHalos(): void {
+    const slabs: BufferGeometry[] = [];
+    for (const stage of STAGES) {
+      const slab = texturedBox(WIN_PAD.width + 9, 0.12, WIN_PAD.length + 9, TILE);
+      slab.translate(stage.winPadX, COURSE.floorY + WIN_PAD.height + 0.14, stage.winPadZ);
+      slabs.push(slab);
+    }
+
+    const material = new MeshLambertMaterial({
+      color: 0xffc94a,
+      transparent: true,
+      opacity: WIN_GLOW.haloBase,
+      // Additive and depth-write off: this is light lying on the deck, and a
+      // glow that occluded what is under it would be a gold rectangle.
+      blending: AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+    });
+    material.emissive.setHex(0xffb01a);
+    material.emissiveIntensity = 1;
+    this.materials.push(material);
+    this.winHaloMaterial = material;
+
+    this.addMerged(slabs, material, false);
+  }
+
+  /**
+   * THE LITTLE CUPS scattered on and around every pad.
+   *
+   * The reference win area has a handful of small trophies sitting on the
+   * plate rather than one big one hanging over it, and that is the better
+   * read: the prize is ON the thing you step onto, and the text above it is
+   * what carries at distance.
+   *
+   * ALL NINETY IN ONE MESH. A cup is a quad with the supplied PNG on it, and
+   * thirty pads' worth as separate billboards would be ninety draw calls for
+   * decoration - so they are merged into a single geometry with one material,
+   * facing back down the course like every other piece of world signage.
+   *
+   * The build waits for the image, because the aspect ratio is DRIVEN by the
+   * art and never set: the quads cannot be sized until the file has decoded.
+   */
+  private buildWinPadCups(): void {
+    const texture = loadSharedImage(TROPHY_URL);
+    const build = (): void => {
+      const image = texture.image as { width?: number; height?: number } | null;
+      const width = image?.width ?? 0;
+      const height = image?.height ?? 0;
+      if (width <= 0 || height <= 0) return;
+
+      const quads: BufferGeometry[] = [];
+      for (const stage of STAGES) {
+        for (const cup of CUPS) {
+          const tall = CUP_HEIGHT * cup.scale;
+          const quad = new PlaneGeometry(tall * (width / height), tall);
+          // Facing back down the course, at the player arriving - the same way
+          // the "+N Wins" sign over the pad faces.
+          quad.rotateY(Math.PI);
+          // The offsets are FRACTIONS of the plate's half-extent, so a pad
+          // that is ever resized keeps its cups in the same relative places
+          // instead of piling them in the middle.
+          quad.translate(
+            stage.winPadX + cup.x * (WIN_PAD.width / 2),
+            COURSE.floorY + WIN_PAD.height + tall / 2 + cup.lift,
+            stage.winPadZ + cup.z * (WIN_PAD.length / 2),
+          );
+          quads.push(quad);
+        }
+      }
+
+      const material = new MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        // Cut the transparent border out rather than blending it, exactly as
+        // `ImageBillboard` does: a soft edge in front of a lit pad reads as a
+        // grey rectangle around every cup.
+        alphaTest: 0.5,
+        side: DoubleSide,
+        // Artwork, not a surface. Shading it would put the hall's own darkness
+        // over a thing that is meant to read as gold.
+        fog: false,
+      });
+      this.materials.push(material);
+
+      const merged = mergeGeometries(quads, false);
+      for (const quad of quads) quad.dispose();
+      if (!merged) return;
+      this.cupMesh = new Mesh(merged, material);
+      this.root.add(this.cupMesh);
+    };
+
+    const image = texture.image as { width?: number } | null;
+    if (image?.width) build();
+    else onImageDecoded(texture, build);
+  }
+
+  /**
+   * The idle pulse: a slow breath across every win pad in the course.
+   *
+   * SUBTLE on purpose - a pad that flashed would compete with the hazards,
+   * which are the things in this game allowed to demand attention. Two sine
+   * evaluations and two property writes per frame, whatever the player is
+   * doing and however many pads exist.
+   */
+  private pulseWinPads(delta: number): void {
+    this.glowTime += delta;
+    const breath = (Math.sin(this.glowTime * WIN_GLOW.rate) + 1) / 2;
+
+    if (this.winPadMaterial) {
+      this.winPadMaterial.emissiveIntensity = WIN_GLOW.base + breath * WIN_GLOW.swing;
+    }
+    if (this.winHaloMaterial) {
+      this.winHaloMaterial.opacity = WIN_GLOW.haloBase + breath * WIN_GLOW.haloSwing;
+    }
+
+    /*
+     * The cups ride the same breath, and it is ONE transform for all ninety.
+     *
+     * They are a single merged mesh, so lifting them is one write - and they
+     * bob to the SAME clock as the glow, which is what makes the pad and the
+     * prizes sitting on it read as one object rather than as two effects that
+     * happen to be near each other.
+     */
+    if (this.cupMesh) {
+      this.cupMesh.position.y = Math.sin(this.glowTime * WIN_GLOW.rate) * 0.35;
     }
   }
 
@@ -1016,14 +1295,23 @@ export class CourseWorld {
         return material;
       }
       case 'winPad': {
-        // The trophy pad. Lit, for the same reason a hard-light slab is: it is
-        // the thing the player is looking for at the end of a stage.
+        /*
+         * THE TROPHY PAD, and it BURNS.
+         *
+         * The one surface in the game that is a reward rather than a route, so
+         * it is lit warmer and harder than anything else: a gold slab glowing
+         * at the end of a stage is the thing a player is hunting for through
+         * the whole of it. `pulseWinPads` then breathes this intensity so the
+         * pad reads as ACTIVE rather than merely painted - the difference
+         * between a prize and a doormat.
+         */
         const material = new MeshLambertMaterial({
-          map: this.textures.goldCheck(PALETTE.winPad, PALETTE.winPadAlt),
+          map: this.textures.winPlate(PALETTE.winPad, PALETTE.winPadAlt),
         });
-        material.emissive.setHex(0xffc51f);
-        material.emissiveIntensity = 0.5;
+        material.emissive.setHex(0xffb01a);
+        material.emissiveIntensity = WIN_GLOW.base;
         this.materials.push(material);
+        this.winPadMaterial = material;
         return material;
       }
       case 'returnPad': {

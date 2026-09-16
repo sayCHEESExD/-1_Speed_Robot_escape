@@ -83,6 +83,14 @@ export const PALETTE = {
   /** The gold clearance pad at the end of every stage. */
   winPad: '#ffc51f',
   winPadAlt: '#ffe89a',
+  /**
+   * The dark plinth the gold plate is inset into.
+   *
+   * Nearly black, and deliberately darker than the deck it stands on: the
+   * border's whole job is to separate a bright plate from whatever colour the
+   * floor is in that section of the facility.
+   */
+  winPadRim: 0x121824,
   /** The RETURN pad opposite it: lime, and worth nothing. */
   returnPad: '#2f4410',
   returnPadAlt: '#d8ff3a',

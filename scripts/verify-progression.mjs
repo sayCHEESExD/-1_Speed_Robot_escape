@@ -105,14 +105,15 @@ console.log('stage rewards');
   check('a second run of the same stage pays again', third.granted, true);
   check('  wins credited twice', player.wins, stage.winReward * 2);
 
-  // Every configured reward, checked against the specification. Stage 1 pays
-  // MORE than stage 2 on purpose - the first clear is a welcome bonus.
-  const expected = [5, 3, 8, 15, 25, 40, 60, 90];
+  // Every configured reward, checked against the specification. Stage 1 pays a
+  // single Win - a token for proving the loop works - and the ladder proper
+  // starts at stage 2 and climbs from there without stepping down again.
+  const expected = [1, 3, 8, 15, 25, 40, 60, 90];
   let rewardsOk = true;
   for (let i = 0; i < expected.length; i += 1) {
     if (STAGES[i].winReward !== expected[i]) rewardsOk = false;
   }
-  check('stage rewards are 5/3/8/15/25/40/60/90', rewardsOk, true);
+  check('stage rewards are 1/3/8/15/25/40/60/90', rewardsOk, true);
 }
 
 console.log('rebirth');
@@ -233,10 +234,11 @@ console.log('speed is earned by WALKING FORWARD, and by nothing else');
    * @param move    units of ground actually covered in that second
    * @param belt    treadmill index, or 0 for the hangar floor
    */
-  const farm = (forward, move, belt = 0) => {
+  const farm = (forward, move, belt = 0, seconds = 1) => {
     player.treadmill = belt;
     const before = player.totalSpeed;
-    for (let i = 0; i < 60; i += 1) {
+    const steps = Math.round(seconds * 60);
+    for (let i = 0; i < steps; i += 1) {
       player.z += move / 60;
       speeds.credit('test', player, 1 / 60, forward);
     }
@@ -282,18 +284,39 @@ console.log('speed is earned by WALKING FORWARD, and by nothing else');
   check('  a crawl under the threshold pays nothing', farm(true, SPEED.movingSpeed * 0.5), 0);
 
   /*
-   * A TREADMILL PAYS EXACTLY WHAT WALKING PAYS.
+   * IT ARRIVES IN WHOLE TICKS, and the tick is the mech's own figure.
    *
-   * The belt is the ground moving instead of the machine, so it earns the same
-   * fixed rate - and it earns it only while the player is actually running,
-   * which is why the no-W case is checked too. There is no belt bonus, no tier
-   * and no multiplier anywhere on the bay.
+   * This is what the player actually sees: a +2 mech has to pay TWO in one go
+   * so the popup over their head reads "+2", not a dribble of fractions that
+   * happens to total two. Half a second of walking therefore pays NOTHING yet,
+   * and the second half pays the lot.
    */
-  const belted = farm(true, 0, 1);
-  check('a treadmill pays exactly what walking pays', Math.abs(belted - walked) < 1e-9, true);
-  check('  and standing on one without W pays nothing', farm(false, 0, 1), 0);
-  const second = farm(true, 0, 2);
-  const third = farm(true, 0, 3);
+  const half = farm(true, MOVEMENT.moveSpeed, 0, 0.5);
+  check('half a second of walking has not paid yet', half, 0);
+  check('  and the next half second pays the whole tick', farm(true, MOVEMENT.moveSpeed, 0, 0.5), rate);
+  const grants = [];
+  for (let i = 0; i < 4; i += 1) grants.push(farm(true, MOVEMENT.moveSpeed));
+  check(
+    '  four seconds pay four identical ticks',
+    grants.every((g) => Math.abs(g - rate) < 1e-9),
+    true,
+  );
+
+  /*
+   * A TREADMILL PAYS EXACTLY WHAT WALKING PAYS, AND IT PAYS FOR STANDING ON IT.
+   *
+   * A mech on a running deck IS walking - the belt is covering the ground
+   * instead of the machine - so the bay is the one place a stationary player
+   * earns, and it earns WITHOUT a key held: holding one would only walk them
+   * off the rig, since nothing on a belt holds them there.
+   *
+   * What it pays is the ordinary rate. No belt bonus, no tier, no multiplier.
+   */
+  const belted = farm(false, 0, 1);
+  check('standing on a belt pays exactly what walking pays', Math.abs(belted - walked) < 1e-9, true);
+  check('  and holding W on one pays the same, not more', Math.abs(farm(true, 0, 1) - walked) < 1e-9, true);
+  const second = farm(false, 0, 2);
+  const third = farm(false, 0, 3);
   check('all three belts pay the same', Math.abs(second - third) < 1e-9, true);
   check('there is no tier table on the bay', 'tiers' in TRAINING, false);
 
@@ -564,18 +587,31 @@ console.log('speed and levels');
 
   check('starts at level 1', player.level, 1);
 
-  // Credit honest movement: sixty 1/60-second steps at a plausible gallop.
-  // The per-step distance has to be one the server would actually observe -
-  // anything larger is a teleport by definition and pays nothing.
+  /*
+   * Credit honest movement: two seconds of 1/60-second steps at a plausible
+   * gallop. The per-step distance has to be one the server would actually
+   * observe - anything larger is a teleport by definition and pays nothing.
+   *
+   * A HUNDRED AND TWENTY-ONE steps, not a hundred and twenty. Speed arrives in
+   * whole ticks of a second and the very first step after a spawn establishes
+   * the movement baseline without paying, so two seconds of TICKS takes two
+   * seconds of stepping plus that one. Getting this off by a frame is not a
+   * rounding quibble - it is the difference between two ticks and one.
+   */
   speeds.reset('test', player);
   const perStep = 24 / 60;
   let z = 0;
-  for (let i = 0; i < 60; i += 1) {
+  for (let i = 0; i < 121; i += 1) {
     z += perStep;
     player.z = z;
     speeds.credit('test', player, 1 / 60, true);
   }
   check('honest movement pays', player.totalSpeed > 0, true);
+  check(
+    '  two seconds of it pays exactly two ticks',
+    Math.abs(player.totalSpeed - robotForSlot(player.robotSlot).speedPerSecond * 2) < 1e-9,
+    true,
+  );
 
   /*
    * A TELEPORT PAYS NOTHING AT ALL.

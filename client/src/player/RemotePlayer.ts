@@ -49,7 +49,6 @@ export class RemotePlayer {
   private deathTime = -1;
 
   /** True while this remote is running on a belt. */
-  private onTreadmill = false;
 
   private placed = false;
 
@@ -94,6 +93,9 @@ export class RemotePlayer {
     this.lastDeathCount = state.deathCount;
   }
 
+  /** True while this remote is running a treadmill belt. */
+  private onTreadmill = false;
+
   /** Copy the replicated fields in. Called on every patch for this player. */
   apply(state: NetPlayerState): void {
     this.targetX = state.x;
@@ -102,13 +104,19 @@ export class RemotePlayer {
     this.targetYaw = state.rotationY;
 
     this.input.grounded = state.grounded;
-    // A remote on a treadmill reports zero velocity, so the run cycle is fed
-    // the speed they are running AT - otherwise they would idle on the spot.
+    /*
+     * A remote on a treadmill reports zero velocity, so the run cycle is fed
+     * the speed they are running AT - otherwise they would idle on the spot.
+     *
+     * The flag is kept as well as used, because the TRAIL needs the opposite
+     * answer from the same fact: the legs are running and the ribbon is not
+     * going anywhere.
+     */
+    this.onTreadmill = state.treadmill > 0;
     this.input.horizontalSpeed =
-      state.treadmill > 0 ? 24 * state.moveMultiplier : state.speed;
+      this.onTreadmill ? 24 * state.moveMultiplier : state.speed;
     this.input.moveMultiplier = state.moveMultiplier;
     this.input.verticalVelocity = state.verticalVelocity;
-    this.onTreadmill = state.treadmill > 0;
 
     this.mount.setRobotSlot(state.robotSlot);
     this.mount.setTrailSlot(state.trailSlot);
@@ -180,6 +188,8 @@ export class RemotePlayer {
       position.x,
       position.y,
       position.z,
+      // No ribbon from a machine running on the spot, exactly as for the local
+      // player: a trail is a record of ground covered.
       this.onTreadmill ? 0 : this.input.horizontalSpeed,
     );
   }

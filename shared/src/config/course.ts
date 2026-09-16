@@ -575,15 +575,14 @@ const STAGE_TUNING: readonly StageTuning[] = [
 /**
  * Wins per stage.
  *
- * The ONE place a stage reward is written. Stage 1 pays 5 and stage 2 pays 3
- * exactly as specified: the first clear is a WELCOME BONUS, deliberately fat
- * enough to put the player on the second robot immediately, and the ladder
- * proper starts at stage 2 and climbs from there without ever stepping down
- * again. Anything past the table continues the same accelerating curve, so a
- * thirty-first stage needs no edit here.
+ * The ONE place a stage reward is written. Stage 1 pays 1 and stage 2 pays 3:
+ * the first clear is a TOKEN - proof the loop works and the first Win in the
+ * counter - and the ladder proper starts at stage 2 and climbs from there
+ * without ever stepping down again. Anything past the table continues the same
+ * accelerating curve, so a thirty-first stage needs no edit here.
  */
 const STAGE_REWARDS = [
-  5, 3, 8, 15, 25, 40, 60, 90,
+  1, 3, 8, 15, 25, 40, 60, 90,
   130, 180, 250, 350, 500, 700, 1_000, 1_400, 2_000, 2_800, 4_000, 5_600,
   8_000, 12_000, 18_000, 27_000, 40_000, 60_000, 90_000, 140_000, 220_000,
   350_000,
