@@ -416,7 +416,21 @@ const build = (definition: RobotDefinition): RobotParts => {
   const thigh = (): BufferGeometry => {
     const set = new BoxSet();
     set.add([lt, shape.thighLength, lt], [0, -shape.thighLength / 2, 0], palette.armor);
-    set.add([lt * 1.12, lt * 0.55, lt * 1.12], [0, -shape.thighLength, 0], palette.frame);
+    /*
+     * THE KNEE, AND IT IS DEEPER THAN THE SHIN ON PURPOSE.
+     *
+     * The shin hangs from this block and its armour is `lt * 1.12` deep. A
+     * knee the same depth put two same-facing surfaces on exactly the same
+     * plane, and a depth buffer cannot choose between them: the joint tore
+     * into the hatched flicker that coplanar faces always produce, on every
+     * mech in the roster, from every angle. The elbow avoided it by accident -
+     * its block is 1.18 against a 1.22 forearm - and this is that same
+     * clearance made deliberate.
+     *
+     * A joint standing PROUD of the limb below it is also simply what a
+     * mechanical knee looks like, so the fix costs nothing visually.
+     */
+    set.add([lt * 1.12, lt * 0.55, lt * 1.24], [0, -shape.thighLength, 0], palette.frame);
     return finish(set, 'thigh');
   };
 

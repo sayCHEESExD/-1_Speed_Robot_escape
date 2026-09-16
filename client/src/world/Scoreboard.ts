@@ -279,15 +279,31 @@ export class Scoreboard {
          * against the bulkhead, so there is no wall immediately behind it for
          * a long brace to reach.
          */
+        /*
+         * DEEPER THAN THE CASE, and that is not styling.
+         *
+         * A stanchion exactly `BOARD.depth` thick shares its front and back
+         * planes with the frame bars it runs up behind, and the two overlap
+         * across the bottom bar - two same-facing surfaces on one plane, which
+         * is the hatched flicker a depth buffer produces when it cannot choose.
+         * Standing the legs proud by the same margin the corner blocks already
+         * use settles it, and a stanchion in front of the case is what bolted-
+         * on structure looks like anyway.
+         */
         group.add(
           this.box(
             stoneDark,
             sx * (BOARD.width / 2 - 2.5),
-            BOARD.baseY / 2,
+            (BOARD.baseY - 0.4) / 2,
             0,
             5.5,
-            BOARD.baseY,
-            BOARD.depth,
+            // Stopping a shade SHORT of the case, for the same reason it is
+            // deeper than it: a stanchion ending exactly at `baseY` put its
+            // top face on the same plane as the bottom frame bar's, which is
+            // the other half of the same flicker. Ending inside the bar hides
+            // the face entirely.
+            BOARD.baseY - 0.4,
+            BOARD.depth + 0.6,
           ),
         );
         group.add(

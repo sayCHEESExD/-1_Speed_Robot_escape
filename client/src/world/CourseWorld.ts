@@ -693,7 +693,18 @@ export class CourseWorld {
      * costs three boxes and it is the single detail that stops the door
      * reading as one slab of decoration.
      */
-    const channel = texturedBox(2.4, height, 4.4, TILE);
+    /*
+     * 4.0 DEEP, NOT 4.4, AND THAT IS THE WHOLE REASON THE DOOR IS CLEAN.
+     *
+     * At 4.4 its front face landed on z + 3.2 - the exact plane of the seam
+     * light under every plate - so each of the seven seams crossed the split
+     * with two same-facing surfaces on one plane and tore into the hatched
+     * flicker a depth buffer produces when it cannot choose between them. The
+     * door now has three distinct planes stepping backwards, which is also
+     * what it should look like: the plate proud at z + 3.4, the seam light set
+     * into the gap behind it at z + 3.2, and the split deeper still.
+     */
+    const channel = texturedBox(2.4, height, 4.0, TILE);
     channel.translate(0, COURSE.floorY + height / 2, z + 1);
     steel.push(channel);
     for (const side of [-1, 1]) {

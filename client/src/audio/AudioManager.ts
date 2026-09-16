@@ -6,6 +6,20 @@ const SCOPE = 'audio';
 const MUSIC_GAIN = 0.55;
 const SFX_GAIN = 0.34;
 
+/**
+ * THE WALK HAS ITS OWN BUS, and that is the whole reason it can be heard.
+ *
+ * `SFX_GAIN` is deliberately low because it holds down a CROWD: a dozen
+ * one-shot blips, thuds and arpeggios that may all fire at once, and the
+ * ceiling that keeps them from piling into distortion is the same ceiling that
+ * kept the one continuous sound in the game at a whisper. The walk is not a
+ * blip - it is the machine the player is riding, playing for as long as they
+ * are moving - so it is mixed on its own and answers to nothing but this.
+ *
+ * Raising `SFX_GAIN` instead would have shouted every menu click in the game.
+ */
+const WALK_GAIN = 0.9;
+
 /*
  * FOUR SUPPLIED FILES, and everything else synthesised.
  *
@@ -116,6 +130,10 @@ export class AudioManager {
   private master: GainNode | null = null;
   private musicBus: GainNode | null = null;
   private sfxBus: GainNode | null = null;
+  /** The walking loop's own bus. See `WALK_GAIN`. */
+  private walkBus: GainNode | null = null;
+  /** The safety limiter every bus passes through. See `resume`. */
+  private limiter: DynamicsCompressorNode | null = null;
 
   /** Live one-shot voices, so the ceiling can be enforced. */
   private voices = 0;
@@ -214,7 +232,35 @@ export class AudioManager {
       // the first user gesture, so a context created at full volume would be
       // loud for exactly as long as it took the next slider change to arrive.
       this.master.gain.value = this.muted ? 0 : this.masterLevel;
-      this.master.connect(this.context.destination);
+
+      /*
+       * A SAFETY LIMITER, and it is what buys the mix its headroom.
+       *
+       * Web Audio's destination HARD CLIPS at plus or minus one. Without
+       * something at the end of the chain, every level in this file has to be
+       * chosen so that the loudest possible sum of music, walk and a dozen
+       * one-shots still lands under that - which is why everything was pinned
+       * so low that the mech could not be heard walking. This catches the
+       * coincidences instead, so each sound can be set at the level it should
+       * be rather than at the level the worst case allows.
+       *
+       * It sits AFTER the master gain, so mute and the portal's volume slider
+       * work exactly as they did: at zero, nothing reaches it at all.
+       *
+       * Conservative on purpose, and the threshold is CHOSEN rather than
+       * guessed: with the portal's sliders at maximum the music track peaks at
+       * about -5 dBFS on its own, so a threshold below that would have the
+       * limiter riding the soundtrack all the time. At -3 it is untouched by
+       * any single source and only ever catches a sum.
+       */
+      this.limiter = this.context.createDynamicsCompressor();
+      this.limiter.threshold.value = -3;
+      this.limiter.knee.value = 4;
+      this.limiter.ratio.value = 12;
+      this.limiter.attack.value = 0.003;
+      this.limiter.release.value = 0.25;
+      this.master.connect(this.limiter);
+      this.limiter.connect(this.context.destination);
 
       this.musicBus = this.context.createGain();
       this.musicBus.gain.value = MUSIC_GAIN * this.musicLevel;
@@ -223,6 +269,10 @@ export class AudioManager {
       this.sfxBus = this.context.createGain();
       this.sfxBus.gain.value = SFX_GAIN;
       this.sfxBus.connect(this.master);
+
+      this.walkBus = this.context.createGain();
+      this.walkBus.gain.value = WALK_GAIN;
+      this.walkBus.connect(this.master);
     }
 
     void this.context.resume().catch(() => undefined);
@@ -320,7 +370,8 @@ export class AudioManager {
    */
   setFootsteps(active: boolean, pace: number): boolean {
     const ctx = this.context;
-    const bus = this.sfxBus;
+    // ITS OWN BUS, not the one-shot bus. See `WALK_GAIN`.
+    const bus = this.walkBus;
     const buffer = this.samples.get('step');
     if (!ctx || !bus || !buffer) {
       this.stopFootsteps();
@@ -361,20 +412,19 @@ export class AudioManager {
     /*
      * LOUD ENOUGH TO BE THE MACHINE YOU ARE RIDING.
      *
-     * Above 1 deliberately, and the arithmetic is the reason rather than
-     * taste. The walk recording and the music track are within half a decibel
-     * of each other (-12.3 dBFS RMS against -11.9), so whatever each one is
-     * multiplied by IS the balance between them. Music reaches the master at
-     * MUSIC_GAIN, 0.55; the walk used to reach it at SFX_GAIN times 0.75, or
-     * 0.255 - less than half, which is why a mech the size of a house could
-     * barely be heard walking over its own soundtrack.
+     * The arithmetic is the reason rather than taste. The walk recording and
+     * the music track are within half a decibel of each other (-12.3 dBFS RMS
+     * against -11.9), so whatever each is multiplied by IS the balance between
+     * them - and the music reaches the master at MUSIC_GAIN, 0.55. A walk that
+     * only matches that figure does not read as loud: the music is broadband
+     * and the walk is mostly low end, so at equal level the track MASKS it.
+     * It has to sit clearly ABOVE the music to be heard as what it is.
      *
-     * This lands it just under the music at a full stride. It is scaled HERE
-     * rather than on the bus because this one node is the only continuous
-     * sound in the game: raising SFX_GAIN to fix it would have shouted every
-     * jump, landing and menu blip along with it.
+     * The band is narrow on purpose. A mech walking slowly is still a mech
+     * walking; this is not a fade, it is the difference between a stroll and a
+     * full stride.
      */
-    this.footstepGain.gain.setTargetAtTime(0.95 + level * 0.45, now, 0.05);
+    this.footstepGain.gain.setTargetAtTime(0.72 + level * 0.28, now, 0.05);
     return true;
   }
 
@@ -483,6 +533,8 @@ export class AudioManager {
     this.musicBus = null;
     this.stopFootsteps();
     this.sfxBus = null;
+    this.walkBus = null;
+    this.limiter = null;
   }
 
   // -------------------------------------------------------------- the music

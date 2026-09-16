@@ -320,6 +320,18 @@ Procedural, and required for the finished game — not a placeholder.
   with a swing smaller than a platform is long.
 - `texturedBox` scales UVs to WORLD size, so one texture tiles across every
   solid at the same physical scale.
+- **NO TWO VISIBLE SURFACES MAY SHARE A PLANE.** Everything here is
+  axis-aligned boxes merged into a handful of meshes, so it is very easy to
+  write two that happen to agree to the millimetre on one face - and a depth
+  buffer cannot choose between them, so the pair tears into a hatched flicker
+  that moves with the camera. Three shipped that way: the door's centre split
+  against the seam light under every plate, the mechs' knee block against the
+  shin hanging off it, and the scoreboards' stanchions against their own case.
+  A part that sits over another is made PLAINLY proud of it or plainly buried
+  in it; matching a neighbour's size exactly is the bug. The check is
+  mechanical - group every axis-aligned face by (axis, plane, facing) and look
+  for two from different boxes whose rectangles overlap - and it is worth
+  re-running after adding hardware to the hangar.
 - World signs are **single-sided**. A double-sided panel is legible from the
   front and MIRRORED from behind.
 - **Sign text is sized to FIT.** `CanvasSign` measures the string and shrinks
@@ -618,21 +630,35 @@ synthesised.**
   IS on this course. Both are fetched and decoded once; a blocked or missing
   file changes which sound plays and nothing else, because `playSample` falls
   back to the synthesised voice.
-- **THE WALK IS MIXED TO SIT WITH THE MUSIC, and that is arithmetic rather
-  than taste.** The walk recording and the music track are within half a
-  decibel of each other (-12.3 dBFS RMS against -11.9), so whatever each is
-  multiplied by IS the balance between them. Music reaches the master at
-  `MUSIC_GAIN`; the walk reaches it at `SFX_GAIN` times its own envelope, and
-  an envelope under 1 therefore put a nine-unit machine's footsteps several
-  decibels below its own soundtrack - reported, correctly, as not being able to
-  hear them. The envelope is scaled ON THE FOOTSTEP NODE and not on the bus,
-  because this is the one continuous sound in the game: raising `SFX_GAIN` to
-  fix it would shout every jump, landing and menu blip along with it.
+- **THE WALK HAS ITS OWN BUS (`WALK_GAIN`), and that is why it can be heard.**
+  `SFX_GAIN` is low because it holds down a CROWD - a dozen one-shot blips,
+  thuds and arpeggios that can all fire at once - and for a long time the walk
+  hung off that same bus, so the ceiling protecting the blips was also the
+  ceiling keeping the one CONTINUOUS sound in the game at a whisper. Raising
+  `SFX_GAIN` to fix it would have shouted every menu click instead. The walk is
+  not a blip; it is the machine the player is riding, and it is mixed on its
+  own.
+- **THE BALANCE IS ARITHMETIC RATHER THAN TASTE.** The walk recording and the
+  music track are within half a decibel of each other (-12.3 dBFS RMS against
+  -11.9), so whatever each is multiplied by IS the balance between them - and
+  matching the music is NOT enough. The track is broadband and the walk is
+  mostly low end, so at equal level the music MASKS it: it has to sit clearly
+  above to read as what it is.
+- **A SAFETY LIMITER ON THE MASTER IS WHAT BUYS THE HEADROOM.** Web Audio's
+  destination HARD CLIPS at plus or minus one, so without one, every level in
+  the file has to be chosen against the loudest possible SUM - which is exactly
+  what pinned everything so low that a nine-unit machine could not be heard
+  walking. Its threshold is chosen, not guessed: with the portal's sliders at
+  maximum the music peaks near -5 dBFS alone, so -3 is untouched by any single
+  source and only ever catches a coincidence. It sits AFTER the master gain, so
+  mute and the portal's volume slider work exactly as before - at zero nothing
+  reaches it at all.
 - **`robot steps.mp3` is the WALK, and it is LOOPED rather than fired per
   stride.** It is nearly three seconds of a mech walking — several footfalls,
   not one — so retriggering it on every stride would cut each step off before
   it finished. `AudioManager.setFootsteps(active, pace)` owns it: one looping
-  source on the sfx bus, faded in and out so it never clicks, its playback rate
+  source on the WALK bus, faded in and out so it never clicks, its playback
+  rate
   tied to pace inside a band a recording survives being stretched over. It is
   deliberately NOT counted against `MAX_VOICES`, because that ceiling bounds
   one-shots and this one node has to last the whole walk.
