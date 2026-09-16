@@ -437,6 +437,19 @@ export class Game {
    */
   startBloxity(): void {
     this.bloxity.start();
+    /*
+     * INSIDE THE PORTAL THE TOP-LEFT CORNER IS NOT OURS.
+     *
+     * Bloxity draws its own bar there - the account button, the menu, chat -
+     * over our frame, and we cannot see it or measure it from in here. What
+     * the game can do is stop putting anything underneath it, which is what
+     * this class switches on: the stylesheet reserves a band and the HUD is
+     * laid out below it.
+     *
+     * Asked ONCE, after the SDK is initialised, because whether this frame is
+     * embedded cannot change without a reload.
+     */
+    document.body.classList.toggle('aoe-portal-embedded', this.bloxity.embedded);
   }
 
   /** Progress, for the portal's loading screen. */
@@ -553,6 +566,9 @@ export class Game {
       // every frame, because an award TELEPORTS the player home a moment after
       // it lands - see `WinTrophies.follow`.
       this.world.winTrophies.follow(player.position);
+      // Stage signage is built as the player comes within range of it rather
+      // than all thirty stages at startup. See `StageReveal`.
+      this.world.revealNear(player.position.z);
       this.sceneManager.followShadow(
         player.position.x,
         player.position.y,

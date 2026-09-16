@@ -1,3 +1,4 @@
+import { maxTextureEdge } from '../config/device.js';
 import {
   CanvasTexture,
   FrontSide,
@@ -45,9 +46,26 @@ export class CanvasSign {
    * @param lines  what to draw, top to bottom
    */
   constructor(width: number, height: number, lines: readonly SignLine[]) {
-    // Enough resolution that a small label is still crisp up close. The canvas
-    // is thrown away after upload, so this costs texture memory only.
-    const pixelsPerUnit = 64;
+    /*
+     * SIXTY-FOUR PIXELS A UNIT, UP TO A CEILING - AND THE CEILING IS THE POINT.
+     *
+     * Without one this line was the most expensive in the client. A sign is
+     * sized from its WORLD size, so the stage gates - 46 units across - each
+     * became a 2944 x 704 canvas: eight megapixels and thirty-three megabytes
+     * of GPU memory for two words, thirty times over. The scene's textures came
+     * to 369 MB, which is more than a phone will give one tab, and the symptom
+     * was a browser that hung rather than a game that ran slowly.
+     *
+     * The comment this replaces said the cost was "texture memory only". That
+     * is exactly the cost that mattered.
+     *
+     * Scaling the whole sign down rather than clamping one edge keeps the
+     * canvas the same SHAPE as the panel, so the layout below is untouched and
+     * nothing is squashed. Small labels are unaffected: they never reach the
+     * ceiling, so they still get all 64.
+     */
+    const edge = maxTextureEdge();
+    const pixelsPerUnit = Math.min(64, edge / Math.max(width, height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(2, Math.round(width * pixelsPerUnit));
     canvas.height = Math.max(2, Math.round(height * pixelsPerUnit));

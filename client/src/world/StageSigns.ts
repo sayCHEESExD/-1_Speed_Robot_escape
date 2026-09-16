@@ -1,7 +1,8 @@
-import { COURSE, STAGES } from '@robot/shared';
+import { COURSE } from '@robot/shared';
 import { Group } from 'three';
 import { CanvasSign } from './CanvasSign.js';
 import type { SignLine } from './CanvasSign.js';
+import { StageReveal } from './StageReveal.js';
 
 /**
  * The stage indicator at the head of each stage.
@@ -32,10 +33,14 @@ import type { SignLine } from './CanvasSign.js';
 export class StageSigns {
   readonly root = new Group();
 
-  private readonly signs: CanvasSign[] = [];
-
-  constructor() {
-    for (const stage of STAGES) {
+  /*
+   * BUILT AS THE PLAYER ARRIVES, not all thirty at startup. Each of these is a
+   * canvas and a texture upload, and the twenty-eight the player cannot see
+   * from the spawn were a large part of what a phone spent its memory on
+   * before the first frame. See `StageReveal`.
+   */
+  private readonly reveal = new StageReveal(this.root, (stage) => {
+    {
       const lines: SignLine[] = [
         {
           // THE headline, and it is a number. Big enough to read from the
@@ -69,14 +74,17 @@ export class StageSigns {
       const sign = new CanvasSign(46, stage.index === 1 ? 18 : 11, lines);
       sign.mesh.position.set(0, COURSE.floorY + 34, stage.startZ + 16);
       sign.mesh.rotation.y = Math.PI;
-      this.root.add(sign.mesh);
-      this.signs.push(sign);
+      return sign;
     }
+  });
+
+  /** Build whatever the player has come close enough to see. */
+  revealNear(z: number): void {
+    this.reveal.revealNear(z);
   }
 
   dispose(): void {
-    for (const sign of this.signs) sign.dispose();
-    this.signs.length = 0;
+    this.reveal.dispose();
     this.root.removeFromParent();
   }
 }

@@ -17,6 +17,7 @@ import { logger } from '../util/logger.js';
 import { CanvasSign } from './CanvasSign.js';
 import { texturedBox } from './texturedBox.js';
 import { drawPortrait, portraitFor } from '../bloxity/Portraits.js';
+import { maxTextureEdge } from '../config/device.js';
 
 const SCOPE = 'Scoreboard';
 
@@ -448,8 +449,20 @@ class PanelSurface {
     this.category = spec.category;
 
     this.canvas = document.createElement('canvas');
-    this.canvas.width = Math.round(width * PIXELS_PER_UNIT);
-    this.canvas.height = Math.round(height * PIXELS_PER_UNIT);
+    /*
+     * Under the device's texture ceiling, for the reason given on it.
+     *
+     * A 34 x 28 board at 46 a unit is 1564 x 1288 - eight megabytes each, and
+     * there are two of them standing in the hangar the player spawns in. They
+     * are also REDRAWN whenever the standings move, so this is an upload that
+     * happens again and again rather than once.
+     */
+    const scale = Math.min(
+      PIXELS_PER_UNIT,
+      maxTextureEdge() / Math.max(width, height),
+    );
+    this.canvas.width = Math.round(width * scale);
+    this.canvas.height = Math.round(height * scale);
 
     this.texture = new CanvasTexture(this.canvas);
     this.texture.colorSpace = SRGBColorSpace;

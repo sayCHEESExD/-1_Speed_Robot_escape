@@ -20,9 +20,36 @@ const showBootError = (error: unknown): void => {
   bootStatus.textContent = `Failed to start:\n${message}`;
 };
 
+/**
+ * Hand the browser a frame.
+ *
+ * `requestAnimationFrame` rather than a zero timeout, because what is wanted
+ * here is specifically a PAINT: the next line of work blocks the main thread
+ * for long enough to matter on a phone, and a status nobody ever saw is worse
+ * than no status at all.
+ */
+const paint = (): Promise<void> =>
+  new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+
 const main = async (): Promise<void> => {
   const container = document.getElementById('app');
   if (!container) throw new Error('#app container missing from index.html');
+
+  /*
+   * THE SCREEN GETS TO PAINT BEFORE THE LONG BITS RUN.
+   *
+   * Building the facility is a couple of hundred milliseconds of synchronous
+   * geometry on a desktop and several times that on a phone, and it used to
+   * run inside `new Game(...)` BEFORE anything had told the player the game
+   * was starting - so the whole of it was a frozen, blank tab. Nothing here is
+   * faster than it was; it is that each step now says what it is doing and
+   * then yields long enough for that to reach the screen, so a slow phone
+   * looks like a slow load instead of a hung browser.
+   */
+  setBootStatus('Building the facility…');
+  await paint();
 
   const game = new Game(container);
   // Before anything loads: the portal draws the loading screen these steps
@@ -31,10 +58,12 @@ const main = async (): Promise<void> => {
 
   setBootStatus('Loading rider…');
   game.loadingStep('Loading rider…');
+  await paint();
   await game.initialise();
 
   setBootStatus('Connecting to server…');
   game.loadingStep('Connecting to server…');
+  await paint();
   let online = true;
   try {
     await game.connect();

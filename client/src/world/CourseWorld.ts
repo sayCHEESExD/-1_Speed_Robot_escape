@@ -40,6 +40,7 @@ import { Hazards } from './Hazards.js';
 import { SinkingPlatforms } from './SinkingPlatforms.js';
 import { Sky } from './Sky.js';
 import { StageSigns } from './StageSigns.js';
+import { StageReveal } from './StageReveal.js';
 import { TrainingArea } from './TrainingArea.js';
 import { WorldTextures } from './WorldTextures.js';
 import { texturedBox } from './texturedBox.js';
@@ -146,7 +147,8 @@ export class CourseWorld {
 
   private readonly textures = new WorldTextures();
   private readonly materials: Material[] = [];
-  private readonly winSigns: CanvasSign[] = [];
+  /** The win-pad labels, built stage by stage as the player reaches them. */
+  private winReveal: StageReveal | null = null;
   /**
    * The little cups sitting on every win pad, as ONE merged mesh.
    *
@@ -227,6 +229,17 @@ export class CourseWorld {
    *                from it is what makes what is on screen the same thing the
    *                server will kill with.
    */
+  /**
+   * Build the signage for wherever the player has got to.
+   *
+   * Handed the player's Z every frame, and free on the frames where nothing
+   * new has come into range - which is almost all of them.
+   */
+  revealNear(z: number): void {
+    this.signs.revealNear(z);
+    this.winReveal?.revealNear(z);
+  }
+
   update(delta: number, elapsed: number): void {
     this.hazards.update(elapsed);
     this.sinking.update(elapsed);
@@ -240,7 +253,8 @@ export class CourseWorld {
   dispose(): void {
     this.textures.dispose();
     for (const material of this.materials) material.dispose();
-    for (const sign of this.winSigns) sign.dispose();
+    this.winReveal?.dispose();
+    this.winReveal = null;
     this.cupMesh?.geometry.dispose();
     this.winTrophies.dispose();
     this.hazards.dispose();
@@ -1018,7 +1032,18 @@ export class CourseWorld {
    * one object.
    */
   private buildWinPadSigns(): void {
-    for (const stage of STAGES) {
+    /*
+     * REVEALED AS THE PLAYER ADVANCES, not thirty at once.
+     *
+     * Each of these is a canvas and a texture, and the player can see one at a
+     * time - the pad at the end of the stage they are running. Thirty built at
+     * startup was fifty-five megabytes of GPU memory for twenty-nine payouts
+     * that are nowhere near the spawn. See `StageReveal`.
+     *
+     * The PADS themselves are not deferred: they are merged into the course's
+     * shared meshes, and only these labels are separable.
+     */
+    this.winReveal = new StageReveal(this.root, (stage) => {
       const sign = new CanvasSign(16, 7, [
         {
           /*
@@ -1047,10 +1072,8 @@ export class CourseWorld {
       sign.mesh.position.set(stage.winPadX, COURSE.floorY + 6.4, stage.winPadZ);
       // Facing back down the course, at the player arriving.
       sign.mesh.rotation.y = Math.PI;
-      this.root.add(sign.mesh);
-      this.winSigns.push(sign);
-
-    }
+      return sign;
+    });
 
     this.buildWinPadPlinths();
     this.buildWinPadHalos();

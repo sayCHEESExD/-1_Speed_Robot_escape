@@ -1,5 +1,16 @@
 import { NoToneMapping, PCFShadowMap, SRGBColorSpace, WebGLRenderer } from 'three';
 import { clientConfig } from '../config/clientConfig.js';
+import { isMobileGpu } from '../config/device.js';
+
+/**
+ * Most render pixels per CSS pixel on a phone.
+ *
+ * A phone reports a device pixel ratio of 2 or 3, so an uncapped canvas is
+ * four to nine times the fragments for a difference nobody can see at arm's
+ * length. Every one of those fragments is paid for by a scene of 400-odd draw
+ * calls.
+ */
+const MOBILE_PIXEL_RATIO = 1.5;
 
 /**
  * Owns the WebGLRenderer and the canvas sizing contract.
@@ -20,12 +31,29 @@ export class RendererManager {
   /** Extra cap on pixel ratio from the portal's graphics setting. */
   private qualityPixelRatio = Number.POSITIVE_INFINITY;
 
+  /** True on a phone or tablet. A CEILING on quality, never a default. */
+  private mobile = false;
+
   constructor(container: HTMLElement) {
     this.container = container;
 
+    /*
+     * A PHONE IS NOT GIVEN A DESKTOP RENDERER.
+     *
+     * Both of these are fixed when the context is created and cannot be moved
+     * afterwards, so the decision has to be made HERE rather than left to the
+     * portal's quality setting - which most players never touch, and which a
+     * standalone build never receives at all. Until now a phone got MSAA and
+     * a high-performance context by default and simply wore the cost.
+     *
+     * Multisampling is the expensive one: it multiplies the work of every
+     * fragment on a tile-based mobile GPU, which is the architecture in every
+     * phone. The pixel-ratio cap below does far more for the same look.
+     */
+    const mobile = isMobileGpu();
     this.renderer = new WebGLRenderer({
-      antialias: true,
-      powerPreference: 'high-performance',
+      antialias: !mobile,
+      powerPreference: mobile ? 'default' : 'high-performance',
       alpha: false,
     });
     this.renderer.outputColorSpace = SRGBColorSpace;
@@ -33,9 +61,23 @@ export class RendererManager {
     // desaturates exactly the bright greens and blues the style depends on,
     // so colours are passed through untouched.
     this.renderer.toneMapping = NoToneMapping;
-    this.renderer.shadowMap.enabled = true;
+    /*
+     * SHADOWS ARE A DESKTOP EFFECT HERE.
+     *
+     * Every shadow-casting light renders the scene again into a depth map, and
+     * this scene is 455 draw calls. A phone pays that twice per frame for a
+     * soft edge under a mech it is mostly looking down at. The portal's quality
+     * setting can still turn them back on for a tablet that wants them.
+     */
+    this.renderer.shadowMap.enabled = !mobile;
     // PCFSoftShadowMap is deprecated as of three r185.
     this.renderer.shadowMap.type = PCFShadowMap;
+    /*
+     * And the render resolution. A phone reports a device pixel ratio of 3, so
+     * an uncapped canvas is nine times the fragments of a CSS-pixel one for a
+     * difference nobody can see at arm's length on a five-inch screen.
+     */
+    this.mobile = mobile;
 
     container.appendChild(this.renderer.domElement);
 
@@ -87,9 +129,25 @@ export class RendererManager {
         return;
     }
 
-    this.qualityPixelRatio = pixelRatio;
-    if (this.renderer.shadowMap.enabled !== shadows) {
-      this.renderer.shadowMap.enabled = shadows;
+    /*
+     * THE PHONE'S BUDGET IS A CEILING, NOT A DEFAULT, and that distinction is
+     * the whole reason this was still wrong after the constructor set it.
+     *
+     * The portal reports "High" for everybody unless they have gone and
+     * changed it - which almost nobody does - and this method then wrote that
+     * straight over the mobile settings a moment after they were applied. A
+     * phone was back on full resolution and shadows before the first frame,
+     * and the constructor's work was invisible.
+     *
+     * Taking the LOWER of the two means the setting still works in the
+     * direction that matters: a player who picks Low on a tablet gets Low.
+     */
+    this.qualityPixelRatio = this.mobile
+      ? Math.min(pixelRatio, MOBILE_PIXEL_RATIO)
+      : pixelRatio;
+    const wanted = shadows && !this.mobile;
+    if (this.renderer.shadowMap.enabled !== wanted) {
+      this.renderer.shadowMap.enabled = wanted;
       // Materials cache the shadow configuration they were compiled against.
       this.renderer.shadowMap.needsUpdate = true;
     }

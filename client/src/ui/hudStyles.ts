@@ -1124,6 +1124,86 @@ body.aoe-touch-mode .aoe-rail { --aoe-rail: 62px; }
 }
 
 /*
+ * THE PORTAL'S CORNER, RESERVED.
+ *
+ * Bloxity draws its own bar over the top-left of an embedded frame - account,
+ * menu, chat - and it is outside this document, so it cannot be measured from
+ * in here and it will not move for us. The band below is a RESERVATION, sized
+ * generously against the bar Bloxity ships, and nothing the game owns goes
+ * under it.
+ *
+ * Only the top-LEFT is taken. The Wins housing is centred and the account
+ * button is at the right, so neither is affected - and off-portal the class is
+ * absent and none of this applies.
+ */
+body.aoe-portal-embedded {
+  --aoe-portal-top: 58px;
+  --aoe-portal-left: 248px;
+}
+
+/*
+ * EMBEDDED AND SHORT: the rail crosses to the top-RIGHT.
+ *
+ * On a landscape phone inside the portal the left edge is gone twice over -
+ * the portal's bar has the top of it and the steering stick has the bottom -
+ * and what is between them is not enough to put a row of controls in without
+ * crowding one or the other. Dropping the rail just under the bar left it
+ * fourteen pixels off the stick, which is not a gap anybody can aim inside.
+ *
+ * The top-right strip is the one piece of the screen nothing else claims: the
+ * Wins housing is centred, the account button is a short chip above, and the
+ * action button is far below at the bottom. The rail goes there, still a row,
+ * and clears everything by tens of pixels rather than by ten.
+ *
+ * The height it switches back at is arithmetic, like the other one: under the
+ * bar the column would have h - 58 - 6 - 26 - 0.3h - 20 to live in and needs
+ * 200, so it fits from 443 up. 450 is that with a margin.
+ */
+@media (orientation: landscape) and (max-height: 449px) {
+  body.aoe-portal-embedded.aoe-touch-mode .aoe-rail {
+    left: auto;
+    right: max(10px, env(safe-area-inset-right, 0px));
+    /* Under the account chip, which is the only thing above it. */
+    top: 50px;
+    flex-wrap: wrap;
+    max-height: var(--aoe-rail);
+  }
+}
+/* Narrow as well: a row of four would reach the centred tally. */
+@media (orientation: landscape) and (max-height: 449px) and (max-width: 560px) {
+  body.aoe-portal-embedded.aoe-touch-mode .aoe-rail {
+    max-height: calc(var(--aoe-rail) * 2 + 8px);
+  }
+}
+/*
+ * Embedded and tall enough for the column: it stays on the left where it
+ * belongs, and simply starts below the portal's band.
+ */
+@media (orientation: landscape) and (min-height: 450px) and (max-height: 500px) {
+  body.aoe-portal-embedded.aoe-touch-mode .aoe-rail {
+    top: calc(var(--aoe-portal-top) + 12px);
+  }
+}
+
+/*
+ * THE TALLY DROPS BELOW THE BAR ON A NARROW SCREEN.
+ *
+ * It is centred, so on a wide screen it is nowhere near the portal's corner -
+ * but the band is 248 across, and a housing centred on a 480-wide phone starts
+ * at 207. It reached into it by forty pixels. Below about 560 the two cannot
+ * both have that strip, so the tally takes the line under it and stays
+ * centred, which is where it is meant to be.
+ *
+ * Not scoped to landscape: a portrait phone is narrower still and has exactly
+ * the same collision.
+ */
+@media (max-width: 580px) {
+  body.aoe-portal-embedded .aoe-wins {
+    top: calc(var(--aoe-portal-top) + 6px);
+  }
+}
+
+/*
  * Tall enough to stand the rail back up: it is a COLUMN down the left again,
  * which is where it belongs and where a returning player looks for it.
  */

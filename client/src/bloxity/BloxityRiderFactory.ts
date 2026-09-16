@@ -7,7 +7,6 @@ import {
   type BufferGeometry,
   type Object3D,
 } from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { logger } from '../util/logger.js';
 import {
@@ -50,10 +49,32 @@ export class BloxityRiderFactory {
    */
   private readonly parts = new Map<string, Promise<BufferGeometry | null>>();
 
+  /**
+   * THE GLTF PARSER, FETCHED THE FIRST TIME A PORTAL AVATAR IS ACTUALLY WANTED.
+   *
+   * It is a hundred kilobytes of parser for a file this game only reads when a
+   * signed-in player's Bloxity body arrives - which is after the world is
+   * built, after the room is joined, and never at all for a player who is not
+   * signed in. Imported at the top of the file it was parsed and evaluated in
+   * the critical path of every single load instead.
+   *
+   * Cached, so the module is fetched once however many parts are requested.
+   */
+  private loaderModule: Promise<typeof import('three/examples/jsm/loaders/GLTFLoader.js')> | null =
+    null;
+
+  private async gltfLoader(): Promise<InstanceType<
+    (typeof import('three/examples/jsm/loaders/GLTFLoader.js'))['GLTFLoader']
+  >> {
+    this.loaderModule ??= import('three/examples/jsm/loaders/GLTFLoader.js');
+    const mod = await this.loaderModule;
+    return new mod.GLTFLoader();
+  }
+
   /** The base body, loaded once and cloned per rider. */
   private loadPrototype(): Promise<Object3D | null> {
-    this.prototype ??= new GLTFLoader()
-      .loadAsync(PLAYER_GLB_URL)
+    this.prototype ??= this.gltfLoader()
+      .then((loader) => loader.loadAsync(PLAYER_GLB_URL))
       .then((gltf) => {
         const root = gltf.scene;
         // Sized to this game's rider rather than to Bloxity's viewer: the GLB
@@ -156,8 +177,8 @@ export class BloxityRiderFactory {
     const cached = this.parts.get(url);
     if (cached) return cached;
 
-    const request = new GLTFLoader()
-      .loadAsync(url)
+    const request = this.gltfLoader()
+      .then((loader) => loader.loadAsync(url))
       .then((gltf) => {
         let source: SkinnedMesh | null = null;
         gltf.scene.traverse((child) => {

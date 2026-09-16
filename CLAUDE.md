@@ -603,8 +603,24 @@ the clearest sign it was assembled from another game.
   stylesheet. The telemetry block's width is the viewport less both control
   zones; the rail's height is what is left above the stick. Every one of those
   numbers used to be a guess, and a guess is wrong on some phone.
-- **Inside the Bloxity portal the top-left corner is not ours.**
-  `body.aoe-portal-embedded` supplies `--aoe-portal-top`.
+- **Inside the Bloxity portal the top-left corner is not ours.** Bloxity draws
+  its own bar there - account, menu, chat - over our frame. It is outside this
+  document, so it cannot be measured from in here and it will not move for us:
+  `Game.startBloxity` sets `body.aoe-portal-embedded` from `Bloxity.embedded`
+  and the stylesheet RESERVES a band (`--aoe-portal-top`, `--aoe-portal-left`)
+  that nothing the game owns goes under.
+- **Embedded and landscape, the rail crosses to the top-RIGHT.** The left edge
+  is gone twice over - the portal's bar has the top of it and the steering
+  stick has the bottom - and what is between them is fourteen pixels, which is
+  not a gap anybody can aim inside. The top-right strip is the one piece of the
+  screen nothing else claims, and the rail clears everything there by tens of
+  pixels. It returns to the left, under the band, from 450 high: under the bar
+  the column has `h - 58 - 12 - 26 - 0.3h - 20` to live in and needs 200.
+- **The Wins housing drops below the band on a narrow screen.** It is centred,
+  so on a wide one it is nowhere near the corner - but the band is 248 across
+  and a housing centred on a 480-wide phone starts at 207. Below 580 it takes
+  the line under the bar and stays centred. Not scoped to landscape: a portrait
+  phone is narrower still and collides the same way.
 - **Every menu must be reachable with a mouse.** `MouseLook.cursorFree` is a
   real state: Escape hands the cursor back and KEEPS it back.
 
@@ -774,6 +790,46 @@ currency. Exposed as `window.Legion.SDK`, loaded from a CDN script in
   objects per name. `PlayerRig` binds the **first** of each name.
 - **Every static file lives in the repo-level `assets/`**, which Vite publishes
   as the web ROOT. There is no `client/public/`.
+
+## Startup cost
+
+**THE CLIENT'S BUDGET THAT BITES IS TEXTURE MEMORY, NOT DOWNLOAD SIZE.** The
+12 MB build limit is comfortable; what froze phones was 369 MB of GPU texture
+built before the first frame, which is more than a mobile browser will give one
+tab.
+
+- **EVERY CANVAS-DRAWN TEXTURE IS CAPPED, and `maxTextureEdge` in
+  `config/device.ts` is the cap.** World signs are sized from their WORLD size
+  at a fixed pixels-per-unit, and with no ceiling a stage gate 46 units across
+  became a 2944 x 704 canvas - eight megapixels, thirty-three megabytes, for two
+  words. Thirty of those was 237 MB on its own. Scale the whole canvas down
+  rather than clamping one edge, so the layout inside it is untouched.
+- **STAGE SIGNAGE IS BUILT AS THE PLAYER REACHES IT** (`StageReveal`), not
+  thirty stages at startup. The reveal distance is beyond the fog, so a sign can
+  never be seen arriving, and nothing is ever destroyed - a player crossing a
+  boundary twice must not rebuild the same canvas.
+- **THE COURSE GEOMETRY IS NOT DEFERRED AND MUST NOT BE.** It is merged into a
+  handful of meshes precisely so thirty stages cost a handful of draw calls;
+  building it incrementally would mean re-merging, which costs more than
+  building it once. Signs are one mesh and one texture each, which is what makes
+  them separable.
+- **A PHONE IS NOT GIVEN A DESKTOP RENDERER.** `isMobileGpu` decides once:
+  no multisampling, no shadows, and a pixel ratio of 1.5. Antialiasing and the
+  power preference are fixed when the GL context is created, so that decision
+  belongs in the RendererManager constructor and nowhere else.
+- **THE MOBILE BUDGET IS A CEILING, NOT A DEFAULT.** The portal reports "High"
+  for everybody who has not changed it, and `setQuality` wrote that straight
+  over the mobile settings a moment after they were applied. Take the LOWER of
+  the two, so the setting still works in the direction that matters.
+- **THE SCREEN PAINTS BEFORE THE LONG BITS RUN.** Building the facility is a
+  couple of hundred milliseconds of synchronous geometry on a desktop and
+  several times that on a phone, and it used to run inside `new Game(...)`
+  BEFORE anything had said the game was starting - so all of it was a frozen
+  blank tab. `main.ts` now sets a status and yields a frame before each heavy
+  step. It is not faster; it stops looking like a hang.
+- **The GLTF parser is imported DYNAMICALLY.** It is a hundred kilobytes of
+  code for a file only read when a signed-in player's portal avatar arrives,
+  and a statically imported one was parsed in the critical path of every load.
 
 ## Verification
 
