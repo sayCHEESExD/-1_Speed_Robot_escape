@@ -6,6 +6,7 @@ import {
   type MoveMessage,
   type RespawnMessage,
   type SetAvatarMessage,
+  type SetIdentityMessage,
   type StageAwardedMessage,
 } from '@robot/shared';
 import { Client, getStateCallbacks, type Room } from 'colyseus.js';
@@ -113,6 +114,15 @@ export class NetworkClient {
    */
   private look: (() => SetAvatarMessage | null) | null = null;
 
+  /**
+   * Who the player is, asked for at JOIN time.
+   *
+   * A provider for the same reason as the look: a player can sign in between a
+   * disconnect and the reconnect that follows, and a value captured early
+   * would re-join under the previous name - or under none.
+   */
+  private identityOf: (() => SetIdentityMessage) | null = null;
+
   constructor(handlers: NetworkHandlers = {}) {
     this.handlers = handlers;
   }
@@ -132,8 +142,24 @@ export class NetworkClient {
     this.room?.send(MessageType.SetAvatar, message);
   }
 
+  /**
+   * Tell the room who the player IS: their portal display name and portrait.
+   *
+   * Cosmetic in exactly the way the avatar is - the server sanitises it and
+   * replicates it, and nothing that decides an outcome reads it. The account
+   * id goes separately, on the join options, and stays on the server.
+   */
+  sendIdentity(message: SetIdentityMessage): void {
+    this.room?.send(MessageType.SetIdentity, message);
+  }
+
   setIdentityProvider(provider: () => string | null): void {
     this.identity = provider;
+  }
+
+  /** Where the room should get the player's display name and portrait from. */
+  setDisplayProvider(provider: () => SetIdentityMessage): void {
+    this.identityOf = provider;
   }
 
   get sessionId(): string | null {
@@ -195,6 +221,10 @@ export class NetworkClient {
           // Sent with the join rather than after it, so players already in the
           // room draw this one correctly from their very first patch.
           avatar: this.look?.() ?? undefined,
+          // Same reasoning as the avatar: everyone already in the room should
+          // see this player's NAME in the first patch, not a handle that is
+          // replaced a round trip later.
+          identity: this.identityOf?.() ?? undefined,
         });
         break;
       } catch (error) {
@@ -293,7 +323,16 @@ export class NetworkClient {
       const out: NetLeaderEntry[] = [];
       for (let i = 0; i < rows.length; i += 1) {
         const row = rows[i];
-        if (row) out.push({ handle: row.handle, value: row.value });
+        // Name and portrait travel with the row: a board draws a player it has
+        // never seen in the room, so it cannot look either of them up.
+        if (row) {
+          out.push({
+            handle: row.handle,
+            name: row.name,
+            avatarUrl: row.avatarUrl,
+            value: row.value,
+          });
+        }
       }
       return out;
     };

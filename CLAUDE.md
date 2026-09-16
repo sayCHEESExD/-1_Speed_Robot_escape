@@ -588,10 +588,20 @@ thing there.
   `PlayerState`, live winning wherever both exist.
 - Rebuilt on a slow timer, not per tick. The replicated arrays are
   FIXED-LENGTH and written in place.
-- A row shows the player's **Bloxity name** when they are signed in, and
-  otherwise the handle `handleFor` DERIVES from their id — so a standalone
-  player still has a stable name and the id itself never leaves the server.
-  Never show the derived `@handle` in place of a real display name.
+- A row is **the player's portrait and the player's Bloxity DISPLAY NAME**, in
+  that order — `[face] Chicken 877`. The portrait is their real portal
+  thumbnail, pinned to `https://static.bloxity.io/` and fetched with
+  `crossOrigin` set, because the board canvas becomes a WebGL texture and an
+  image fetched without CORS taints it. A face that never decodes simply is not
+  drawn and the name takes the whole row.
+- **A DERIVED HANDLE IS NEVER A NAME.** `handleFor` still keys a row — it is
+  how a stored profile and the live player who owns it are merged, and how a
+  client tells an occupied row from an empty one — but it is generated from an
+  internal id and must not be drawn anywhere. A player with no display name is
+  called what `visibleName` says, which is a plain word and not an `@handle`.
+- `visibleName` in `shared/src/types/identity.ts` is the ONE place that decides
+  what an unnamed player is called, so the nameplate over a mech and every
+  board agree by construction rather than by two matching fallbacks.
 - The board is keyed by PLAYER ID, never by the name shown.
 
 ## Audio
@@ -655,6 +665,17 @@ currency. Exposed as `window.Legion.SDK`, loaded from a CDN script in
 - **No asset URL is built from an id.** `GET /v1/avatar/items/{id}` hands back
   an `assetPaths` object and those paths are used verbatim.
 - A portrait URL is pinned to `https://static.bloxity.io/`.
+- **THE VISIBLE NAME IS `displayName`, AND NOTHING ELSE IS.** `username` is a
+  login handle, `_id` is an account id and `sessionId` is a connection: all
+  three are identifiers the game keeps for networking, persistence and
+  matching, and none of them is ever drawn. `identityFromLegion` is the one
+  place the portal user is turned into a name, `sanitizeIdentity` the one place
+  it is trusted, and `visibleName` the one place an absent name is answered.
+- The name and portrait are **replicated on `PlayerState`**, not read from the
+  SDK per client: every player draws every other player's plate, and a client
+  cannot ask the portal who somebody else is. They are sent on join and again
+  on `onUserChanged`, so signing in mid-session renames a player for everyone
+  without a reload.
 - A nested Colyseus schema does NOT bubble its changes to its parent, so
   `avatar` needs its own `onChange`.
 

@@ -77,6 +77,10 @@ export class JsonFilePersistence implements PersistenceAdapter {
           ownedTrails: numeric(value.ownedTrails),
           trailSlot: numeric(value.trailSlot),
           bestStage: numeric(value.bestStage),
+          // Absent from every profile written before names existed, which is
+          // exactly what the optional fields are for.
+          displayName: typeof value.displayName === 'string' ? value.displayName : '',
+          avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : '',
           updatedAt: numeric(value.updatedAt),
         });
       }

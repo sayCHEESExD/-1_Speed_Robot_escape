@@ -18,6 +18,7 @@ import { createAnimationInput, type AnimationInput } from '../animation/Animatio
 import { DEATH } from '../config/animationConfig.js';
 import type { InputState } from '../input/InputState.js';
 import { Mount } from './Mount.js';
+import { NamePlate } from './NamePlate.js';
 
 /** Inputs kept for re-simulation. Older ones are dropped as the server acks. */
 const MAX_PENDING_INPUTS = 240;
@@ -220,9 +221,20 @@ export class LocalPlayer {
 
   private readonly animationInput: AnimationInput = createAnimationInput();
 
+  /**
+   * The player's own name, over their own machine.
+   *
+   * The same plate every other player wears, for the same reason: a name is
+   * how a player is identified in this game, and the local one is not a
+   * special case. Parented to the mount's root - NOT to `robot.root` - so the
+   * arrival pop that scales the mech up from nothing leaves the name alone.
+   */
+  private readonly plate = new NamePlate();
+
   constructor(collision: WorldCollision, robotSlot: number) {
     this.collision = collision;
     this.mount = new Mount(robotSlot);
+    this.mount.root.add(this.plate.sprite);
     this.previous.x = this.motion.x;
     this.previous.y = this.motion.y;
     this.previous.z = this.motion.z;
@@ -305,6 +317,17 @@ export class LocalPlayer {
   /** Show the trail the server says this player is wearing. Cosmetic only. */
   setTrailSlot(slot: number): void {
     this.mount.setTrailSlot(slot);
+  }
+
+  /**
+   * Show the name the SERVER says this player is called.
+   *
+   * Replicated rather than read from the portal SDK directly, so the plate
+   * over the local mech and the plate every other client draws over it are
+   * the same string from the same source.
+   */
+  setDisplayName(displayName: string): void {
+    this.plate.set(displayName, this.mount.height);
   }
 
   /**

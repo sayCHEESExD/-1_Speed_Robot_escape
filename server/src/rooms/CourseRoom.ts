@@ -18,8 +18,10 @@ import {
   type RespawnReason,
   type StageAwardedMessage,
   sanitizeAppearance,
+  sanitizeIdentity,
   sanitizeProportions,
   type SetAvatarMessage,
+  type SetIdentityMessage,
 } from '@robot/shared';
 import { serverConfig } from '../config/serverConfig.js';
 import { MovementService } from '../movement/MovementService.js';
@@ -54,6 +56,13 @@ interface JoinOptions {
    * follow-up message has made the round trip.
    */
   avatar?: SetAvatarMessage;
+  /**
+   * The player's portal display name and portrait, for the same reason the
+   * avatar is here: everybody already in the room should draw this player by
+   * NAME from their first patch rather than as a generated handle until a
+   * follow-up message has made the round trip.
+   */
+  identity?: SetIdentityMessage;
 }
 
 /**
@@ -152,6 +161,9 @@ export class CourseRoom extends Room<CourseState> {
     this.onMessage(MessageType.BuyTrail, (client, message: BuyTrailMessage) =>
       this.onBuyTrail(client, message),
     );
+    this.onMessage(MessageType.SetIdentity, (client, message: SetIdentityMessage) =>
+      this.onSetIdentity(client, message),
+    );
     this.onMessage(MessageType.SetAvatar, (client, message: SetAvatarMessage) =>
       this.onSetAvatar(client, message),
     );
@@ -225,6 +237,21 @@ export class CourseRoom extends Room<CourseState> {
       this.applyGrants(client.sessionId, player);
     }
     if (options.avatar) this.writeAvatar(player, options.avatar);
+    /*
+     * The name they are seen under.
+     *
+     * A restored profile may already carry one; a signed-in player's own claim
+     * is newer, so it wins. A signed-OUT player sends nothing and keeps
+     * whatever the profile had, which is what stops a name flickering back to
+     * a generated handle on a reconnect.
+     */
+    if (options.identity) {
+      const identity = sanitizeIdentity(options.identity);
+      if (identity.displayName) {
+        player.displayName = identity.displayName;
+        player.avatarUrl = identity.avatarUrl;
+      }
+    }
 
     this.rebirths.sync(player);
 
@@ -425,6 +452,34 @@ export class CourseRoom extends Room<CourseState> {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
     this.writeAvatar(player, message);
+  }
+
+  /**
+   * The player's VISIBLE identity: their portal display name and portrait.
+   *
+   * Sent on join and again whenever the portal reports a different user, so a
+   * player who signs in mid-session is renamed for everyone without a reload.
+   * Sanitised before it is written - a name is drawn and never trusted, and a
+   * portrait that is not on the portal's CDN is dropped.
+   *
+   * The board is rebuilt immediately rather than on its slow timer: a player
+   * watching their own name appear two seconds late would reasonably assume it
+   * had not worked.
+   */
+  private onSetIdentity(client: Client, message: SetIdentityMessage): void {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    const identity = sanitizeIdentity(message);
+    if (player.displayName === identity.displayName && player.avatarUrl === identity.avatarUrl) {
+      return;
+    }
+    player.displayName = identity.displayName;
+    player.avatarUrl = identity.avatarUrl;
+    // Names live on the profile too, so the boards can still name this player
+    // once they have left the room.
+    this.persist(client.sessionId, player);
+    leaderboardService.rebuild(this.state.leaderboard, this.state.players, this.playerIds);
   }
 
   /** Sanitise, then write in place. The one path an appearance is set by. */

@@ -1,4 +1,4 @@
-import { COURSE, LEADERBOARD_SIZE, formatSpeed } from '@robot/shared';
+import { COURSE, LEADERBOARD_SIZE, formatSpeed, visibleName } from '@robot/shared';
 import {
   CanvasTexture,
   FrontSide,
@@ -131,6 +131,14 @@ const PIXELS_PER_UNIT = 46;
 
 /** Medal colours for the first three places, then everyone else. */
 const RANK_COLOURS = ['#ffd53d', '#dfe6ef', '#ff9a3d'] as const;
+
+/**
+ * Decoded portraits, by URL, shared across every board.
+ *
+ * Module scope rather than per board: the same player appears on Top Wins and
+ * Top Speed, and one decode is enough for both.
+ */
+const PORTRAITS = new Map<string, HTMLImageElement>();
 const RANK_DEFAULT = '#ffffff';
 
 /*
@@ -448,7 +456,12 @@ class PanelSurface {
   }
 
   apply(rows: readonly NetLeaderEntry[]): void {
-    const signature = rows.map((row) => `${row.handle}:${row.value}`).join('|');
+    // The NAME and the portrait are part of what is drawn, so they are part of
+    // what decides a redraw: a player signing in changes their row without
+    // changing their score.
+    const signature = rows
+      .map((row) => `${row.handle}:${row.name}:${row.avatarUrl}:${row.value}`)
+      .join('|');
     if (signature === this.signature && this.placeholder === 'No scores yet') return;
     this.signature = signature;
     this.placeholder = 'No scores yet';
@@ -474,6 +487,40 @@ class PanelSurface {
     this.material.dispose();
     this.geometry.dispose();
     this.mesh.removeFromParent();
+  }
+
+  /**
+   * A decoded portrait, or null while it is still loading.
+   *
+   * CACHED per URL and shared by both boards: the same player is usually on
+   * more than one of them, and two boards redrawing every couple of seconds
+   * would otherwise re-fetch the same handful of faces for ever.
+   *
+   * `crossOrigin` is not optional. The canvas these are drawn into becomes a
+   * WebGL TEXTURE, and drawing an image fetched without CORS taints the canvas
+   * - the upload then throws and the whole board goes black. A portrait whose
+   * host refuses CORS simply never decodes, and the row draws the name alone.
+   *
+   * The redraw that shows it is the board's own: `signature` includes the URL,
+   * so an image arriving after the row was drawn is picked up on the next
+   * rebuild rather than needing a callback into the renderer.
+   */
+  private portrait(url: string): HTMLImageElement | null {
+    const cached = PORTRAITS.get(url);
+    if (cached) return cached.complete && cached.naturalWidth > 0 ? cached : null;
+
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.referrerPolicy = 'no-referrer';
+    image.decoding = 'async';
+    image.src = url;
+    PORTRAITS.set(url, image);
+    // Redraw once it lands, so a face that arrives late is not stuck waiting
+    // for the next score to change.
+    image.addEventListener('load', () => {
+      this.signature = '\u0000portrait';
+    });
+    return null;
   }
 
   private draw(rows: readonly NetLeaderEntry[]): void {
@@ -572,14 +619,45 @@ class PanelSurface {
       ctx.strokeText(rank, rankX, centreY);
       ctx.fillText(rank, rankX, centreY);
 
-      // Handle, shrunk to fit the space between the rank and the figure. It is
-      // the one field whose length is not ours to choose, so it is the one
-      // that has to give - and the figure beside it must never be pushed off
-      // the board by a long name.
-      fitText(ctx, row.handle, handleRoom, size, 'left');
+      /*
+       * THE PLAYER'S PORTRAIT, then THE PLAYER'S NAME.
+       *
+       * The name is the portal's display name - never the derived handle and
+       * never an id. `visibleName` is the one place that decides what an
+       * unnamed player is called, so a guest reads the same here as it does
+       * over their mech.
+       *
+       * The portrait is drawn only once it has decoded. `portrait` starts the
+       * load and returns null until then, so a board with a slow image draws
+       * the name immediately and gains the face a moment later rather than
+       * waiting for the network to finish.
+       */
+      const face = row.avatarUrl ? this.portrait(row.avatarUrl) : null;
+      const faceSize = rowH * 0.74;
+      // The portrait column is RESERVED whether or not this row has one, so the
+      // names line up down the board. A row that shuffled left because its
+      // player had no face would break the one thing a ranked list is for.
+      const nameX = handleX + faceSize + width * 0.012;
+      if (face) {
+        ctx.save();
+        // Round, like every other portrait the portal shows.
+        ctx.beginPath();
+        ctx.arc(handleX + faceSize / 2, centreY, faceSize / 2, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(face, handleX, centreY - faceSize / 2, faceSize, faceSize);
+        ctx.restore();
+      }
+
+      // Shrunk to fit whatever is left between the portrait and the figure. It
+      // is the one field whose length is not ours to choose, so it is the one
+      // that gives - the figure beside it must never be pushed off the board
+      // by a long name.
+      const name = visibleName(row.name);
+      fitText(ctx, name, handleRoom - (nameX - handleX), size, 'left');
       ctx.fillStyle = PALETTE.boardName;
-      ctx.strokeText(row.handle, handleX, centreY);
-      ctx.fillText(row.handle, handleX, centreY);
+      ctx.strokeText(name, nameX, centreY);
+      ctx.fillText(name, nameX, centreY);
 
       // The figure, right-aligned so the column reads down the page.
       const text = this.format(row.value);

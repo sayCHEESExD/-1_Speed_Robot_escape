@@ -82,6 +82,21 @@ export class PlayerState extends Schema {
    */
   @type(AvatarState) avatar = new AvatarState();
 
+  /**
+   * THE NAME EVERYONE SEES, and the portrait beside it.
+   *
+   * The portal's display name, replicated so every client can draw every
+   * player: a nameplate over a mech, a row on a board, a face in a list. It is
+   * EMPTY for a player who is not signed in, and the one place that decides
+   * what to show instead is `visibleName` - never a caller's own guess.
+   *
+   * The internal ids stay where they belong. `sessionId` is the room's own
+   * handle for a connection and the Bloxity account id never leaves the
+   * server at all; neither is ever drawn.
+   */
+  @type('string') displayName = '';
+  @type('string') avatarUrl = '';
+
   /** Server-authoritative progression. */
   @type('uint32') level = 1;
   /**

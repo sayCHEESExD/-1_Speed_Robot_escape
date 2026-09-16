@@ -204,11 +204,17 @@ export class BloxityPanel {
     pfp.alt = '';
     pfp.draggable = false;
 
+    /*
+     * THE DISPLAY NAME, and only the display name.
+     *
+     * This row used to carry the login handle underneath it as a second line.
+     * It is a real portal username rather than anything generated, but it is
+     * still an IDENTIFIER, and this game shows people the name they chose -
+     * over a mech, on a board and here - and never an id of any kind.
+     */
     const name = document.createElement('div');
     name.className = 'aoe-friend__name';
-    name.innerHTML =
-      `<b>${escapeHtml(friend.displayName || friend.username)}</b>` +
-      `<small>@${escapeHtml(friend.username)}</small>`;
+    name.innerHTML = `<b>${escapeHtml(friend.displayName || friend.username)}</b>`;
 
     const status = document.createElement('span');
     status.className = 'aoe-friend__status';

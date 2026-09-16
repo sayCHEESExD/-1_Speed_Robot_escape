@@ -9,6 +9,10 @@ const REFRESH_SECONDS = 2;
 /** One candidate, before it is ranked. */
 interface Candidate {
   readonly handle: string;
+  /** The portal's display name, or empty for a player who has never signed in. */
+  readonly name: string;
+  /** Their portrait on the portal's CDN, or empty. */
+  readonly avatarUrl: string;
   readonly wins: number;
   readonly speed: number;
   readonly rebirths: number;
@@ -57,8 +61,13 @@ export class LeaderboardService {
     const byHandle = new Map<string, Candidate>();
 
     for (const [id, profile] of profileStore.entries()) {
+      // Stored players: most of a board is people who are not in the room, and
+      // the name they were last seen under is saved with their progression so
+      // they do not revert to a generated handle the moment they log out.
       byHandle.set(handleFor(id), {
         handle: handleFor(id),
+        name: profile.displayName ?? '',
+        avatarUrl: profile.avatarUrl ?? '',
         wins: profile.wins,
         speed: profile.totalSpeed,
         rebirths: profile.rebirths,
@@ -72,6 +81,8 @@ export class LeaderboardService {
       const handle = handleFor(id);
       byHandle.set(handle, {
         handle,
+        name: player.displayName,
+        avatarUrl: player.avatarUrl,
         wins: player.wins,
         speed: player.totalSpeed,
         rebirths: player.rebirths,
@@ -108,10 +119,14 @@ const fill = (
     if (!entry) continue;
     const candidate = ranked[i];
     const handle = candidate ? candidate.handle : '';
+    const name = candidate ? candidate.name : '';
+    const avatarUrl = candidate ? candidate.avatarUrl : '';
     const value = candidate ? Math.floor(pick(candidate)) : 0;
     // Assign only on a real change, for the same reason as above: an identical
     // write still counts as a change to the schema encoder.
     if (entry.handle !== handle) entry.handle = handle;
+    if (entry.name !== name) entry.name = name;
+    if (entry.avatarUrl !== avatarUrl) entry.avatarUrl = avatarUrl;
     if (entry.value !== value) entry.value = value;
   }
 };

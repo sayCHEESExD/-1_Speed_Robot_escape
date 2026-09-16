@@ -19,6 +19,17 @@ export interface StoredProfile {
   trailSlot: number;
   /** Highest stage ever finished. */
   bestStage: number;
+  /**
+   * The portal's display name and portrait as last seen.
+   *
+   * Stored so a board can name a player who is NOT in the room: the top of the
+   * Wins board is mostly people who are offline, and reading their id back as
+   * a generated handle after they had a name would rename them every time they
+   * logged out. Optional, because every profile written before this existed
+   * has neither.
+   */
+  displayName?: string;
+  avatarUrl?: string;
   /** Wall clock of the last save, for diagnostics and future pruning. */
   updatedAt: number;
 }

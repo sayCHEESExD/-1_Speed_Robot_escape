@@ -4,8 +4,27 @@ import { PlayerState } from './PlayerState.js';
 
 /** One row of one board: who, and how much. */
 export class LeaderEntry extends Schema {
-  /** Derived from the player's id on the server. Empty means an empty row. */
+  /**
+   * The row's KEY, derived from the account id, and it is NEVER DRAWN.
+   *
+   * It is how a stored profile and the live player who owns it are recognised
+   * as the same person while the board is merged, and how a client tells an
+   * occupied row from an empty one. Empty means an empty row.
+   *
+   * It is not a name and must never be shown as one: it is generated from an
+   * internal id, and a player is called what they chose to be called.
+   */
   @type('string') handle = '';
+  /**
+   * THE NAME THE BOARD SHOWS: the portal's display name.
+   *
+   * Empty for a player who has never signed in. `visibleName` decides what is
+   * drawn in that case, and the fallback is a plain word - never the handle
+   * above, and never an id.
+   */
+  @type('string') name = '';
+  /** Their portrait on the portal's CDN, drawn beside the name. */
+  @type('string') avatarUrl = '';
   @type('float64') value = 0;
 }
 

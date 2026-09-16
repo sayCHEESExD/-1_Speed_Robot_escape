@@ -107,3 +107,23 @@ export interface SetAvatarMessage {
   appearance: AvatarAppearance;
   proportions: AvatarProportions;
 }
+
+/**
+ * Client -> server: who the player IS, as the portal knows them.
+ *
+ * The display name and the portrait, and nothing else - the Bloxity user id
+ * travels separately, on the join options, and stays on the server. This is
+ * the half that is meant to be SEEN: a board row, a name over a mech, a chip
+ * in the corner.
+ *
+ * Sent on join and again on every `onUserChanged`, because a player can sign
+ * in, sign out or switch accounts without reloading the game.
+ *
+ * It is a CLAIM, and the server treats it as one: `sanitizeIdentity` trims it,
+ * bounds it and refuses a portrait that is not on Bloxity's own CDN. Nothing
+ * here decides anything - it is drawn, never trusted with a reward.
+ */
+export interface SetIdentityMessage {
+  displayName: string;
+  avatarUrl: string;
+}

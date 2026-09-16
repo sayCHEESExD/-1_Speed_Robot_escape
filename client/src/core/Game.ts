@@ -7,6 +7,7 @@ import { AudioManager } from '../audio/AudioManager.js';
 import { Bloxity } from '../bloxity/Bloxity.js';
 import { AvatarDresser } from '../bloxity/AvatarDresser.js';
 import { lookFromLegion } from '../bloxity/avatarLook.js';
+import { identityFromLegion } from '../bloxity/identity.js';
 import { PlayerAudio } from '../audio/PlayerAudio.js';
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera.js';
 import { clientConfig } from '../config/clientConfig.js';
@@ -292,6 +293,20 @@ export class Game {
     this.network.setLookProvider(() =>
       lookFromLegion(this.bloxity.getEquipped(), this.bloxity.getProportions()),
     );
+    // WHO THE PLAYER IS, as the portal knows them: the name and portrait every
+    // other client draws. Asked for at join time, and pushed again below
+    // whenever the portal reports a different user.
+    this.network.setDisplayProvider(() => identityFromLegion(this.bloxity.getUser()));
+
+    /*
+     * Signing in, signing out or switching accounts renames the player
+     * EVERYWHERE - their nameplate, every board, every list - without a
+     * reload. The portal is the authority on who somebody is; this just
+     * forwards what it says.
+     */
+    this.bloxity.onUserChanged((user) => {
+      this.network.sendIdentity(identityFromLegion(user));
+    });
 
     this.run = new RunController(this.world.collision, {
       claimStage: (index) => {
@@ -629,6 +644,7 @@ export class Game {
 
     player.setMovementProfile(state.moveMultiplier, state.jumpVelocity);
     player.setRobotSlot(state.robotSlot);
+    player.setDisplayName(state.displayName);
 
     if (state.ready) {
       player.reconcile({

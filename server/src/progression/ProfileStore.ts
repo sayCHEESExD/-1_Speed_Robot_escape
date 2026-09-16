@@ -60,6 +60,15 @@ class ProfileStore {
     player.ownedTrails = profile.ownedTrails;
     player.trailSlot = profile.trailSlot;
     player.bestStage = profile.bestStage;
+    /*
+     * The name they were last seen under.
+     *
+     * Restored so a returning player is on the boards under their own name
+     * from the first frame, rather than as a generated handle until the
+     * portal answers. A live `SetIdentity` overwrites it a moment later.
+     */
+    player.displayName = profile.displayName ?? '';
+    player.avatarUrl = profile.avatarUrl ?? '';
     return true;
   }
 
@@ -74,6 +83,10 @@ class ProfileStore {
       ownedTrails: player.ownedTrails,
       trailSlot: player.trailSlot,
       bestStage: player.bestStage,
+      // Kept so the boards can name this player while they are OFFLINE - most
+      // of a Wins board is people who are not in the room.
+      displayName: player.displayName,
+      avatarUrl: player.avatarUrl,
       updatedAt: Date.now(),
     });
     this.adapter.save(this.profiles);

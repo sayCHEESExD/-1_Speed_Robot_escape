@@ -11,6 +11,16 @@ import type { MapSchema } from '@colyseus/schema';
  */
 export interface NetPlayerState extends PlayerMotionState {
   sessionId: string;
+  /**
+   * The portal display name, replicated so every client can draw every player.
+   *
+   * EMPTY for a player who is not signed in: `visibleName` in shared is the
+   * one place that decides what to show instead, so a guest is called the same
+   * thing on every screen.
+   */
+  displayName: string;
+  /** Their portrait on the portal's CDN, or empty. */
+  avatarUrl: string;
   /** The ROBOT's transform. The rider is carried and has none of its own. */
   x: number;
   y: number;
@@ -65,7 +75,12 @@ export interface NetGuardianState {
 
 /** One row of one leaderboard, exactly as the server ranked it. */
 export interface NetLeaderEntry {
+  /** The derived fallback. Empty means an empty row; never shown as a name. */
   handle: string;
+  /** The portal display name, when the player has one. This is what is drawn. */
+  name: string;
+  /** Their portrait on the portal's CDN, drawn beside the name. */
+  avatarUrl: string;
   value: number;
 }
 

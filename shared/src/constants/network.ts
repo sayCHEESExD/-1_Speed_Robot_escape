@@ -94,6 +94,13 @@ export const MessageType = {
    * there is. It is sanitised on arrival and it never touches progression.
    */
   SetAvatar: 'setAvatar',
+  /**
+   * The player's Bloxity DISPLAY NAME and portrait.
+   *
+   * Sent on join and again whenever the portal reports a different user, so
+   * signing in mid-session renames the player everywhere without a reload.
+   */
+  SetIdentity: 'setIdentity',
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];

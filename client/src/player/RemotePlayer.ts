@@ -4,6 +4,7 @@ import type { NetPlayerState } from '../net/netTypes.js';
 import { AvatarDresser } from '../bloxity/AvatarDresser.js';
 import { lookFromState } from '../bloxity/avatarLook.js';
 import { Mount } from './Mount.js';
+import { NamePlate } from './NamePlate.js';
 
 /** Seconds a remote transform is smoothed over. */
 const FOLLOW_RATE = 14;
@@ -32,6 +33,15 @@ const shortestAngle = (from: number, to: number): number => {
  */
 export class RemotePlayer {
   readonly mount: Mount;
+
+  /**
+   * The name over this player's machine.
+   *
+   * Parented to the MOUNT, so it rides with them for free - a plate positioned
+   * per frame from their transform would be a frame behind at four hundred
+   * units a second, which is exactly where a name is hardest to read.
+   */
+  private readonly plate = new NamePlate();
 
   /** Latest authoritative transform, eased toward every frame. */
   private targetX = 0;
@@ -81,6 +91,7 @@ export class RemotePlayer {
 
   constructor(state: NetPlayerState) {
     this.mount = new Mount(state.robotSlot);
+    this.mount.root.add(this.plate.sprite);
     this.dresser = new AvatarDresser(this.mount);
     this.apply(state);
     this.mount.setPosition(this.targetX, this.targetY, this.targetZ);
@@ -112,6 +123,11 @@ export class RemotePlayer {
      * answer from the same fact: the legs are running and the ribbon is not
      * going anywhere.
      */
+    // The portal display name, whatever it is now: signing in mid-session
+    // renames a player over everyone else's head without a reload. `set` is a
+    // string compare when the name has not moved, which is almost always.
+    this.plate.set(state.displayName, this.mount.height);
+
     this.onTreadmill = state.treadmill > 0;
     this.input.horizontalSpeed =
       this.onTreadmill ? 24 * state.moveMultiplier : state.speed;
@@ -195,6 +211,7 @@ export class RemotePlayer {
   }
 
   dispose(): void {
+    this.plate.dispose();
     this.dresser.dispose();
     this.mount.dispose();
   }
