@@ -283,6 +283,20 @@ export class TouchControls {
     const vmin = Math.min(window.innerWidth, window.innerHeight);
     this.radius = Math.max(RADIUS_MIN, Math.min(vmin * RADIUS_VMIN, RADIUS_MAX));
     this.stick.style.setProperty('--aoe-stick-radius', `${this.radius}px`);
+    /*
+     * PUBLISHED ON THE ROOT, because the HUD has to lay out AROUND the thumb
+     * controls and cannot otherwise know how big they are.
+     *
+     * The radius is computed here, in JS, from `vmin` - so a stylesheet that
+     * wanted to leave room for the stick previously had to guess at a pixel
+     * figure and hope. Every guess is wrong on some phone. With the real
+     * number on `:root` the telemetry block and the rail can be sized by
+     * arithmetic against it, and a change to `RADIUS_VMIN` moves them both.
+     */
+    document.documentElement.style.setProperty(
+      '--aoe-stick-radius',
+      `${this.radius}px`,
+    );
     if (this.movePointer === null) this.placeStickAtRest();
   };
 
@@ -360,6 +374,16 @@ const injectStyles = (): void => {
  * canvas underneath, so a finger that lands beside it still steers. Only the
  * action button takes events.
  */
+:root {
+  /*
+   * THE ACTION BUTTON'S SIZE, declared once and used by the HUD as well.
+   *
+   * The block along the bottom of the screen has to end before this begins,
+   * so the figure cannot live only on the button.
+   */
+  --aoe-jump-size: clamp(74px, 17vmin, 108px);
+}
+
 .aoe-touch {
   position: fixed;
   inset: 0;
@@ -426,8 +450,8 @@ const injectStyles = (): void => {
   position: fixed;
   right: calc(var(--aoe-safe-r, 0px) + 24px);
   bottom: calc(var(--aoe-safe-b, 0px) + 34px);
-  width: clamp(74px, 17vmin, 108px);
-  height: clamp(74px, 17vmin, 108px);
+  width: var(--aoe-jump-size);
+  height: var(--aoe-jump-size);
   padding: 0;
   /*
    * THE ONE ACTION CONTROL, and it is a hex plate with a lit rim.

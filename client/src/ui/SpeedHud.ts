@@ -386,6 +386,40 @@ body.aoe-touch-mode .mech-hud {
   width: min(540px, 88vw);
 }
 
+/*
+ * A PHONE ON ITS SIDE: the block goes BACK to the bottom edge.
+ *
+ * The offset above lifts it clear of thumb controls that sit along the bottom
+ * of a PORTRAIT screen. Turn the phone and that is wrong twice over: there is
+ * no room to give - 128px of a 240px-tall viewport is most of it, which put
+ * the readout across the middle of the picture, over the mech and into the
+ * Wins tally - and there is nothing down there to clear, because in landscape
+ * the stick and the action button take the two bottom CORNERS and leave the
+ * middle of that edge empty.
+ *
+ * So it sits in that gap, and its width is the gap: the viewport less both
+ * control zones less a margin either side. Measured rather than picked, from
+ * the figures the touch layer publishes, so it holds on any phone.
+ */
+@media (orientation: landscape) and (max-height: 500px) {
+  body.aoe-touch-mode .mech-hud {
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    width: min(
+      460px,
+      calc(100vw - var(--aoe-stick-zone, 150px) - var(--aoe-jump-zone, 130px) - 48px)
+    );
+    padding: 5px 12px 7px;
+  }
+  body.aoe-touch-mode .mech-hud__head { margin-bottom: 4px; gap: 8px; }
+  body.aoe-touch-mode .mech-hud__label { font-size: 9px; }
+  body.aoe-touch-mode .mech-hud__value { font-size: 24px; }
+  body.aoe-touch-mode .mech-hud__unit { font-size: 10px; }
+  body.aoe-touch-mode .mech-hud__gauge { gap: 8px; }
+  body.aoe-touch-mode .mech-hud__chip { font-size: 11px; padding: 2px 8px; }
+  body.aoe-touch-mode .mech-hud__cells { height: 10px; }
+  body.aoe-touch-mode .mech-hud__amount { font-size: 11px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .mech-hud__cell,
   .mech-hud__cell.is-edge,

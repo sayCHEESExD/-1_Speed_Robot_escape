@@ -581,7 +581,28 @@ the clearest sign it was assembled from another game.
   procedurally, and never set both dimensions in CSS — drive one and leave the
   other automatic so the real aspect ratio survives.
 - **A phone on its side** is `(orientation: landscape) and (max-height: 500px)`,
-  and every rule for it is scoped to that query.
+  and every rule for it is scoped to that query AND to `body.aoe-touch-mode`,
+  so a short desktop window is never restyled.
+- **LANDSCAPE IS A DIFFERENT SHAPE, NOT A SMALLER ONE.** About 240 usable
+  pixels of height against seven hundred of width: a rail of four stacked tiles
+  is 290 tall and does not fit at all, and the telemetry block's portrait
+  offset - lifted 128px to clear thumb controls that sit along the bottom of a
+  PORTRAIT screen - put the readout across the middle of the picture. Shrinking
+  everything fixes neither. The rail WRAPS into a row along the top strip and
+  the block goes back to the bottom edge, where the stick and the action button
+  have left the middle of that edge empty.
+- **THE RAIL STANDS BACK UP WHEN THERE IS HEIGHT FOR IT**, and the threshold is
+  arithmetic rather than taste: a tile is 44, four with three 8px gaps is 200,
+  the stick's radius is `clamp(46px, 0.15 * vmin, 84px)` and in landscape vmin
+  IS the height - so the column fits exactly when `h - 56 - 0.3h >= 200`, which
+  is 366. The rule uses 380. It wraps to 2x2 instead of a row below 520 wide,
+  because a row of four and the centred Wins housing meet in the middle there.
+- **THE HUD LAYS OUT AROUND THE THUMB CONTROLS FROM THEIR REAL FIGURES.**
+  `TouchControls` publishes `--aoe-stick-radius` on the root (it is computed in
+  JS from `vmin`, so CSS cannot derive it) and `--aoe-jump-size` in its own
+  stylesheet. The telemetry block's width is the viewport less both control
+  zones; the rail's height is what is left above the stick. Every one of those
+  numbers used to be a guess, and a guess is wrong on some phone.
 - **Inside the Bloxity portal the top-left corner is not ours.**
   `body.aoe-portal-embedded` supplies `--aoe-portal-top`.
 - **Every menu must be reachable with a mouse.** `MouseLook.cursorFree` is a

@@ -1028,6 +1028,128 @@ body.aoe-touch-mode .aoe-rail { --aoe-rail: 62px; }
   .aoe-pop__icon { height: clamp(30px, 6vw, 44px); }
   .aoe-pop__value { font-size: clamp(14px, 3vw, 22px); }
 }
+
+/*
+ * A PHONE ON ITS SIDE.
+ *
+ * (orientation: landscape) and (max-height: 500px) is the one query every
+ * rule for it is scoped to, and every rule is ALSO scoped to touch mode, so a
+ * short desktop window is never restyled.
+ *
+ * The problem this solves is not smallness, it is SHAPE. A landscape phone has
+ * about 240 usable pixels of height and seven hundred of width: a rail of four
+ * stacked tiles is 290 tall and simply does not fit, and the telemetry block's
+ * portrait offset - lifted 128px to clear thumb controls that sit along the
+ * bottom of a PORTRAIT screen - put it in the middle of the picture. Shrinking
+ * everything would not have fixed either; the layout has to change shape.
+ *
+ * Two facts drive all of it, and both are published by the touch layer rather
+ * than guessed at here: the stick's radius and the action button's size. The
+ * bottom corners belong to those two, the top belongs to the HUD, and the band
+ * between them is what everything else is measured against.
+ */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* The space the left thumb owns, measured from the left edge. */
+  body.aoe-touch-mode {
+    --aoe-stick-zone: calc(
+      26px + env(safe-area-inset-left, 0px) + var(--aoe-stick-radius, 64px) * 2
+    );
+    --aoe-jump-zone: calc(24px + env(safe-area-inset-right, 0px) + var(--aoe-jump-size, 88px));
+  }
+
+  /*
+   * THE RAIL LIES DOWN WHEN THE SCREEN IS TOO SHORT TO STAND IT UP.
+   *
+   * Four stacked tiles are 200 tall and the stick owns the bottom-left corner,
+   * so on a short landscape phone a vertical rail has nowhere to be: it ran off
+   * the top and the bottom of the screen AND sat on top of the stick, which is
+   * what was reported. Wrapped into a ROW along the top strip it clears the
+   * stick by the height of the picture and uses space that is otherwise dead.
+   *
+   * The column is still the rail's real shape, and the rule below restores it
+   * the moment there is height for it. The threshold is not a taste: a tile is
+   * 44, four of them with three 8px gaps is 200, the stick's radius is
+   * clamp(46px, 0.15 * vmin, 84px) and in landscape vmin IS the height - so
+   * the column fits exactly when h - 56 - 0.3h is at least 200, which is 366.
+   * 380 is that figure with a margin.
+   */
+  body.aoe-touch-mode .aoe-rail {
+    --aoe-rail: 44px;
+    top: max(10px, env(safe-area-inset-top, 0px));
+    left: max(10px, env(safe-area-inset-left, 0px));
+    transform: none;
+    gap: 8px;
+    flex-wrap: wrap;
+    /* One tile tall, so every tile wraps into its own column: a row. */
+    max-height: var(--aoe-rail);
+  }
+  /*
+   * The designations go. They are wider than the plates they name, so in a row
+   * they would run into each other - and four distinctly coloured icons in the
+   * corner of a phone screen are not ambiguous. They return in portrait and on
+   * desktop, where there is room for them.
+   */
+  body.aoe-touch-mode .aoe-tile__label { display: none; }
+  body.aoe-touch-mode .aoe-tile__badge {
+    width: 16px;
+    height: 16px;
+    right: -5px;
+    bottom: -5px;
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  /* The tally, trimmed: it shares the top strip with the rail. */
+  body.aoe-touch-mode .aoe-wins {
+    top: max(6px, env(safe-area-inset-top, 0px));
+    gap: 6px;
+    padding: 3px 12px 4px 9px;
+  }
+  body.aoe-touch-mode .aoe-wins__icon { width: 26px; height: 26px; }
+  body.aoe-touch-mode .aoe-wins__value { font-size: 19px; }
+
+  /* The frame counter sits under the rail rather than on top of it. */
+  body.aoe-touch-mode .aoe-fps { top: auto; bottom: 6px; left: 50%; transform: translateX(-50%); }
+
+  /*
+   * The Speed-gain popups float in the band between the tally and the
+   * telemetry block, which on a screen this short is most of the picture.
+   */
+  body.aoe-touch-mode .aoe-pop__icon { height: 26px; }
+  body.aoe-touch-mode .aoe-pop__value { font-size: 15px; }
+
+  /* Panels get the whole screen; a modal on a 240px-tall viewport cannot
+   * afford the usual margins. */
+  body.aoe-touch-mode .aoe-panel__box { max-height: 92vh; }
+}
+
+/*
+ * Tall enough to stand the rail back up: it is a COLUMN down the left again,
+ * which is where it belongs and where a returning player looks for it.
+ */
+@media (orientation: landscape) and (min-height: 380px) and (max-height: 500px) {
+  body.aoe-touch-mode .aoe-rail {
+    flex-wrap: nowrap;
+    max-height: none;
+  }
+}
+
+/*
+ * NARROW as well as short: the row does not fit beside the tally either.
+ *
+ * A row of four is 200 wide and the Wins housing is centred on the same strip,
+ * so below about 500 the two meet in the middle - three pixels of overlap at
+ * 480, which is a collision like any other. Two by two is 96 wide and clears
+ * it with room to spare, and there is height for a second rank precisely
+ * because this branch only runs on screens too short for the full column.
+ *
+ * 520 rather than 500: the tally grows with the number in it.
+ */
+@media (orientation: landscape) and (max-height: 379px) and (max-width: 520px) {
+  body.aoe-touch-mode .aoe-rail {
+    max-height: calc(var(--aoe-rail) * 2 + 8px);
+  }
+}
 `;
   document.head.appendChild(style);
 };
