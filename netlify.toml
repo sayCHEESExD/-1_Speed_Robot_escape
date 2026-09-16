@@ -1,0 +1,40 @@
+# Netlify build for the Vite client.
+#
+# The base stays at the REPOSITORY ROOT on purpose: this is an npm workspaces
+# monorepo and the client imports @robot/shared. Building from inside client/
+# would install only that workspace and the shared package would be missing.
+[build]
+  base = "."
+  command = "npm run build:client"
+  publish = "client/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # WHERE THE GAME SERVER IS. Set this in the Netlify site's environment
+  # variables, not here, and rebuild after changing it - Vite bakes it into the
+  # bundle at build time and there is no later step in which to inject it.
+  #
+  # Netlify hosts STATIC FILES ONLY. It cannot run the Colyseus server, so this
+  # has to point at wherever that is actually hosted, over wss:// because the
+  # site itself is https and a browser will not open an insecure socket from a
+  # secure page. Without it the client boots, plays offline, and says so.
+  #
+  #   VITE_SERVER_URL = "wss://your-colyseus-host.example.com"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# The FBX is served from the repo-level assets/ folder via Vite's publicDir.
+# Without an explicit type Netlify serves it as text/plain, which some
+# browsers refuse to hand to the loader.
+[[headers]]
+  for = "/player/*.fbx"
+  [headers.values]
+    Content-Type = "application/octet-stream"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

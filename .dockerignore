@@ -1,0 +1,44 @@
+# Keep the build context small and the image reproducible.
+#
+# node_modules especially: the image installs its own from the lockfile, and
+# shipping a host's tree in would send hundreds of megabytes over the docker
+# socket and risk platform-specific binaries built for the wrong OS.
+node_modules
+**/node_modules
+
+# Build outputs. The image compiles its own; a stale local `dist` copied in
+# would silently win over the one that was just built.
+dist
+**/dist
+
+.git
+.github
+.vscode
+.claude
+
+# The client is deployed to Bloxity Hosting as static files, not baked into
+# the server image - but its package.json still has to reach the build context.
+# `npm ci` resolves the WHOLE workspace tree in one pass and fails on a
+# workspace whose manifest it cannot find, even one nothing here imports, so
+# `COPY client/package.json client/` is not optional.
+#
+# The client's CONTENTS are excluded, NOT the directory itself. `client` on its
+# own excludes the directory, and re-including a file from underneath an
+# excluded parent then depends on how the builder treats that parent - which is
+# a subtlety to be right about rather than to rely on. `client/*` never
+# excludes `client`, so there is no excluded parent to re-include across and
+# the exception below cannot be ambiguous. It also fails SAFE: if a builder
+# ignored the pattern entirely the context would merely be larger, where a
+# missing manifest breaks the build outright.
+client/*
+!client/package.json
+
+# Player profiles are runtime state and belong on a mounted volume.
+server/data
+
+*.log
+.env
+.DS_Store
+netlify.toml
+README.md
+CLAUDE.md

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/ui/trophy.png" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>+1 Speed Robot Escape</title>
+
+    <!--
+      The Bloxity SDK.
+      Loaded BEFORE the game bundle so `window.Legion` is there when `main.ts`
+      calls `init`. It is deliberately NOT `async`: the bundle is a module and
+      therefore deferred, and a plain script above it is guaranteed to have run
+      first. If the CDN is unreachable the game still boots - every call goes
+      through a guard that treats a missing SDK as "no portal".
+    -->
+    <script src="https://sdk.bloxity.io/legion-sdk.min.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        /*
+         * Dynamic viewport units: on iOS and Android the browser's own toolbar
+         * shrinks and grows as you scroll, and a percentage height is measured
+         * against the LARGE viewport - so the bottom of the game would sit
+         * under the toolbar until you scrolled. The 100% above is the fallback.
+         */
+        height: 100dvh;
+        overflow: hidden;
+        /* No pinch-zoom, no double-tap zoom, no rubber-banding over the game. */
+        touch-action: none;
+        background: #0a0818;
+        font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+        overscroll-behavior: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      /*
+       * The cursor exists for menus, and there are none yet.
+       *
+       * Pointer lock hides it while it holds, but the browser hands it back on
+       * every Escape and will not grant it again until the player's next
+       * gesture - so between those two moments a pointer would sit over the
+       * game with nothing to click. This class covers that window.
+       */
+      body.aoe-cursor-hidden,
+      body.aoe-cursor-hidden * {
+        cursor: none !important;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+        touch-action: none;
+      }
+      #app canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+      #boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        gap: 10px;
+        padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+          env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+        text-align: center;
+        color: #cbd5f5;
+        background: #0a0818;
+        font-size: 13px;
+        transition: opacity 240ms ease;
+      }
+      #boot[hidden] {
+        display: none;
+      }
+      /*
+       * Offline: the panel stops covering the game and becomes a corner card,
+       * so the session is still playable but never silently pretends to be
+       * connected. Everything it gates - Speed, levels, Wins - is server-owned.
+       */
+      #boot.notice {
+        inset: auto calc(env(safe-area-inset-right, 0px) + 12px)
+          calc(env(safe-area-inset-bottom, 0px) + 12px) auto;
+        place-content: start;
+        padding: 12px 14px;
+        max-width: 44ch;
+        border: 1px solid #7f1d1d;
+        border-radius: 8px;
+        background: rgba(12, 16, 24, 0.92);
+        pointer-events: none;
+      }
+      #boot.notice h1 {
+        margin-bottom: 6px;
+      }
+      #boot-logo {
+        justify-self: center;
+        image-rendering: auto;
+        filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.5));
+      }
+      /* The corner notice has no room for a logo. */
+      #boot.notice #boot-logo {
+        display: none;
+      }
+      #boot h1 {
+        font-size: 16px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #b48bff;
+      }
+      #boot .err {
+        color: #fca5a5;
+        max-width: 60ch;
+        white-space: pre-wrap;
+        text-align: left;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="boot">
+      <img id="boot-logo" src="/ui/trophy.png" alt="" width="128" height="128" />
+      <h1>+1 Speed Robot Escape</h1>
+      <p id="boot-status">Loading&hellip;</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

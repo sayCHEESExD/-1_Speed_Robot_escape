@@ -1,0 +1,40 @@
+{
+  "name": "robot-obby-escape",
+  "version": "0.1.0",
+  "private": true,
+  "description": "+1 Speed Robot Escape - browser multiplayer robot-mech obby (Three.js + Colyseus)",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "build:shared": "npm run build --workspace @robot/shared",
+    "dev": "npm run build:shared && concurrently -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev --workspace @robot/server",
+    "dev:client": "npm run dev --workspace @robot/client",
+    "build": "npm run build:shared && npm run build --workspace @robot/server && npm run build --workspace @robot/client",
+    "build:client": "npm run build:shared && npm run build --workspace @robot/client",
+    "build:server": "npm run build:shared && npm run build --workspace @robot/server",
+    "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
+    "start": "npm run start --workspace @robot/server",
+    "verify:assets": "node scripts/verify-assets.mjs",
+    "size:client": "node scripts/build-size.mjs",
+    "verify:course": "npm run build:shared && node scripts/verify-course.mjs",
+    "verify:progression": "npm run build:server && node scripts/verify-progression.mjs",
+    "verify": "npm run verify:course && npm run verify:barrier && npm run verify:progression",
+    "verify:capacity": "node scripts/verify-capacity.mjs",
+    "verify:barrier": "npm run build:shared && node scripts/verify-barrier.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "@colyseus/core": "0.16.24"
+  }
+}
