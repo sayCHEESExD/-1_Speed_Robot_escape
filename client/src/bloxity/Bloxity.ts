@@ -181,6 +181,20 @@ export class Bloxity {
     return guard('auth.getUser', (api) => api.auth?.getUser?.() ?? null) ?? null;
   }
 
+  /**
+   * Who the portal says an unauthenticated visitor is.
+   *
+   * Null once they sign in, when `getUser` answers instead. The portal names
+   * its guests and draws them a portrait, so this is a REAL identity and not
+   * a placeholder - which is why the game shows it rather than calling
+   * everybody who has not logged in the same thing.
+   *
+   * Optional on the SDK, because older builds predate it.
+   */
+  getGuest(): LegionUser | null {
+    return guard('auth.getGuest', (api) => api.auth?.getGuest?.() ?? null) ?? null;
+  }
+
   getToken(): string | null {
     return guard('auth.getToken', (api) => api.auth?.getToken?.() ?? null) ?? null;
   }

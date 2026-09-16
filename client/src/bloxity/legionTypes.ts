@@ -94,6 +94,17 @@ export interface LegionSdk {
 
   auth?: {
     getUser(): LegionUser | null;
+    /**
+     * The portal's GUEST identity, and null once somebody is signed in.
+     *
+     * The portal gives every unauthenticated visitor a real name and a real
+     * portrait - "Chicken 877" and a rendered thumbnail - rather than leaving
+     * them anonymous. `getUser` returns null for those visitors, so a game
+     * that only asked for the user showed a room full of people called
+     * nothing. It is the exact mirror of `getUser`: exactly one of the two is
+     * ever non-null.
+     */
+    getGuest?(): LegionUser | null;
     getToken(): string | null;
     isLoggedIn(): boolean;
     showAuthPopup(): Promise<LegionUser | null>;

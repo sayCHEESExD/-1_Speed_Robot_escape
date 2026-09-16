@@ -665,12 +665,23 @@ currency. Exposed as `window.Legion.SDK`, loaded from a CDN script in
 - **No asset URL is built from an id.** `GET /v1/avatar/items/{id}` hands back
   an `assetPaths` object and those paths are used verbatim.
 - A portrait URL is pinned to `https://static.bloxity.io/`.
-- **THE VISIBLE NAME IS `displayName`, AND NOTHING ELSE IS.** `username` is a
-  login handle, `_id` is an account id and `sessionId` is a connection: all
-  three are identifiers the game keeps for networking, persistence and
-  matching, and none of them is ever drawn. `identityFromLegion` is the one
-  place the portal user is turned into a name, `sanitizeIdentity` the one place
-  it is trusted, and `visibleName` the one place an absent name is answered.
+- **THE VISIBLE NAME IS `displayName`, falling back to `username`.** Both are
+  names a person chose and the portal's own friend list and toasts read
+  `displayName || username`, so this does too. `_id` is an account id and
+  `sessionId` is a connection: those two are identifiers the game keeps for
+  networking, persistence and matching, and NEITHER is ever drawn.
+  `identityFromLegion` is the one place a portal user is turned into a name,
+  `sanitizeIdentity` the one place it is trusted, and `visibleName` the one
+  place an absent name is answered.
+- **`auth.getUser()` IS NULL FOR A GUEST, AND A GUEST STILL HAS A NAME.** The
+  portal hands every unauthenticated visitor a real identity - "Chicken 877"
+  and a rendered portrait on its own CDN - through `auth.getGuest()`, which is
+  the exact mirror of `getUser`: one of the two answers and never both. A game
+  that asks only for the user shows a room full of players called "Guest",
+  which is precisely what happened. The guest name arrives in the SAME portal
+  handshake that reports there is no account, and that handshake fires
+  `onUserChanged`, so reading it from inside that callback is enough - no
+  polling, no second subscription.
 - The name and portrait are **replicated on `PlayerState`**, not read from the
   SDK per client: every player draws every other player's plate, and a client
   cannot ask the portal who somebody else is. They are sent on join and again

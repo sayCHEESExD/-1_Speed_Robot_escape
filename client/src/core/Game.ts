@@ -296,7 +296,9 @@ export class Game {
     // WHO THE PLAYER IS, as the portal knows them: the name and portrait every
     // other client draws. Asked for at join time, and pushed again below
     // whenever the portal reports a different user.
-    this.network.setDisplayProvider(() => identityFromLegion(this.bloxity.getUser()));
+    this.network.setDisplayProvider(() =>
+      identityFromLegion(this.bloxity.getUser(), this.bloxity.getGuest()),
+    );
 
     /*
      * Signing in, signing out or switching accounts renames the player
@@ -305,7 +307,10 @@ export class Game {
      * forwards what it says.
      */
     this.bloxity.onUserChanged((user) => {
-      this.network.sendIdentity(identityFromLegion(user));
+      // A null user is NOT nobody: the portal names its guests, and that name
+      // arrives in the same handshake that reports there is no account. Ask
+      // for it here rather than leaving the player called "Guest".
+      this.network.sendIdentity(identityFromLegion(user, this.bloxity.getGuest()));
     });
 
     this.run = new RunController(this.world.collision, {

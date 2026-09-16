@@ -139,10 +139,11 @@ export const injectHudStyles = (): void => {
 .aoe-rail {
   position: fixed;
   /*
-   * Far enough in for the KEY CAPS to fit.
+   * A real gutter, not a hairline.
    *
-   * Each cap hangs six pixels off the top-left corner of its tile, so a rail
-   * pinned tight to the edge puts half of every hint off the screen.
+   * Nothing hangs off the side of a tile any more - the key cap sits inside
+   * the plate - so this is simply the margin the rail is read against, and it
+   * still has to clear a phone's rounded corner.
    */
   left: max(18px, env(safe-area-inset-left, 0px));
   top: 50%;
@@ -219,56 +220,68 @@ export const injectHudStyles = (): void => {
   filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.35));
   pointer-events: none;
 }
-/* The label sits UNDER the tile, overlapping its bottom edge, as in the art. */
-/* The designation, stencilled under the plate the way a hatch is labelled. */
+/*
+ * THE DESIGNATION: a stencilled strip on the bottom edge of the plate.
+ *
+ * IT CARRIES ITS OWN BACKGROUND, and that is the whole point of it. Set as
+ * bare glyphs with only a soft shadow it was drawn straight onto whatever the
+ * world happened to be behind the rail - a lit floor, a magenta wall strip,
+ * the next tile's own steel - and at eight pixels of tracked-out monospace
+ * that is unreadable against roughly half the hangar. An opaque chip makes the
+ * contrast a property of the control instead of a property of the room.
+ *
+ * It hangs in the gutter between two plates rather than on top of the one
+ * below: opaque, so it reads whatever is behind it, and tucked far enough up
+ * that it is plainly attached to ITS tile and not the next one.
+ */
 .aoe-tile__label {
   position: absolute;
   left: 50%;
-  bottom: -15px;
+  bottom: -9px;
   transform: translateX(-50%);
+  padding: 1px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(4, 9, 15, 0.94);
   font-family: var(--aoe-mono);
-  font-size: clamp(8px, 0.95vw, 11px);
-  letter-spacing: 0.2em;
+  font-size: clamp(8px, 0.95vw, 10px);
+  line-height: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--aoe-lime);
-  text-shadow: 0 0 5px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
   white-space: nowrap;
   pointer-events: none;
 }
-/* The PC key cap, top-left, as in the reference art.
- *
- * Top LEFT because the red "!" badge already owns the bottom right and the
- * label owns the bottom edge - the corner is the only place it can sit without
- * covering something that was there first.
- */
 /*
- * THE KEY CAP: which key opens this panel, on the corner of the plate.
+ * THE KEY CAP: which key opens this panel, INSIDE the top-right corner.
+ *
+ * Inside, because a cap hung off the corner is a chip floating in the room -
+ * it needs the rail pushed in to fit, it collides with the world behind it,
+ * and it does not read as part of the button it belongs to. The top right is
+ * the one corner of the plate that is free: the chamfers cut the top left and
+ * the bottom right, the label owns the bottom edge and the alert pip owns the
+ * bottom-right outside.
  *
  * Small and quiet - a hairline chip in the facility's own lime, sized to the
- * one character it carries. It is a HINT rather than a label: a player who
- * already knows the key should be able to stop seeing it, which is why it is
- * eleven pixels of monospace on a dark chip rather than anything with a
- * background bright enough to compete with the icon underneath.
- *
- * Sat on the top-left corner, where the plate's chamfer is: the cut corner is
- * the one piece of the tile with nothing behind it.
+ * one character it carries. It is a HINT rather than a label, so it must never
+ * compete with the icon it sits over.
  */
 .aoe-tile__key {
   position: absolute;
-  left: -6px;
-  top: -6px;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 4px;
+  right: 4px;
+  top: 4px;
+  min-width: 17px;
+  height: 15px;
+  padding: 0 3px;
   box-sizing: border-box;
-  border: 1px solid var(--aoe-hair);
+  border: 1px solid rgba(216, 255, 58, 0.45);
   border-radius: 0;
-  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
-  background: rgba(6, 12, 20, 0.95);
+  background: rgba(4, 9, 15, 0.9);
   color: var(--aoe-lime);
   font-family: var(--aoe-mono);
-  font-size: 11px;
-  line-height: 18px;
+  font-size: 10px;
+  line-height: 13px;
   text-align: center;
   letter-spacing: 0;
   pointer-events: none;
