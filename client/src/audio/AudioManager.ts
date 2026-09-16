@@ -358,7 +358,23 @@ export class AudioManager {
     // Under 1 across the whole band: the recording's own cadence is quicker
     // than this mech's, and the gait it has to agree with is a slow one.
     this.footsteps.playbackRate.setTargetAtTime(0.6 + level * 0.35, now, 0.08);
-    this.footstepGain.gain.setTargetAtTime(0.4 + level * 0.35, now, 0.05);
+    /*
+     * LOUD ENOUGH TO BE THE MACHINE YOU ARE RIDING.
+     *
+     * Above 1 deliberately, and the arithmetic is the reason rather than
+     * taste. The walk recording and the music track are within half a decibel
+     * of each other (-12.3 dBFS RMS against -11.9), so whatever each one is
+     * multiplied by IS the balance between them. Music reaches the master at
+     * MUSIC_GAIN, 0.55; the walk used to reach it at SFX_GAIN times 0.75, or
+     * 0.255 - less than half, which is why a mech the size of a house could
+     * barely be heard walking over its own soundtrack.
+     *
+     * This lands it just under the music at a full stride. It is scaled HERE
+     * rather than on the bus because this one node is the only continuous
+     * sound in the game: raising SFX_GAIN to fix it would have shouted every
+     * jump, landing and menu blip along with it.
+     */
+    this.footstepGain.gain.setTargetAtTime(0.95 + level * 0.45, now, 0.05);
     return true;
   }
 

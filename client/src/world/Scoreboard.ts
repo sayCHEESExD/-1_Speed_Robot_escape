@@ -16,6 +16,7 @@ import { PALETTE } from '../config/worldVisuals.js';
 import { logger } from '../util/logger.js';
 import { CanvasSign } from './CanvasSign.js';
 import { texturedBox } from './texturedBox.js';
+import { drawPortrait, portraitFor } from '../bloxity/Portraits.js';
 
 const SCOPE = 'Scoreboard';
 
@@ -131,14 +132,6 @@ const PIXELS_PER_UNIT = 46;
 
 /** Medal colours for the first three places, then everyone else. */
 const RANK_COLOURS = ['#ffd53d', '#dfe6ef', '#ff9a3d'] as const;
-
-/**
- * Decoded portraits, by URL, shared across every board.
- *
- * Module scope rather than per board: the same player appears on Top Wins and
- * Top Speed, and one decode is enough for both.
- */
-const PORTRAITS = new Map<string, HTMLImageElement>();
 const RANK_DEFAULT = '#ffffff';
 
 /*
@@ -490,37 +483,21 @@ class PanelSurface {
   }
 
   /**
-   * A decoded portrait, or null while it is still loading.
+   * A decoded portrait, or null while it is still on its way.
    *
-   * CACHED per URL and shared by both boards: the same player is usually on
-   * more than one of them, and two boards redrawing every couple of seconds
-   * would otherwise re-fetch the same handful of faces for ever.
+   * The cache is SHARED WITH THE NAMEPLATES through `portraitFor`: the two
+   * players either side of you are on the boards as well, and one decode has
+   * to serve a face over a mech and the same face in two ranked lists.
    *
-   * `crossOrigin` is not optional. The canvas these are drawn into becomes a
-   * WebGL TEXTURE, and drawing an image fetched without CORS taints the canvas
-   * - the upload then throws and the whole board goes black. A portrait whose
-   * host refuses CORS simply never decodes, and the row draws the name alone.
-   *
-   * The redraw that shows it is the board's own: `signature` includes the URL,
-   * so an image arriving after the row was drawn is picked up on the next
-   * rebuild rather than needing a callback into the renderer.
+   * The redraw that shows it is the board's OWN. Clearing the signature makes
+   * the next `apply` - which runs every frame against an unchanged snapshot -
+   * draw again, so a face that arrives late needs no callback into the
+   * renderer and no per-frame polling.
    */
   private portrait(url: string): HTMLImageElement | null {
-    const cached = PORTRAITS.get(url);
-    if (cached) return cached.complete && cached.naturalWidth > 0 ? cached : null;
-
-    const image = new Image();
-    image.crossOrigin = 'anonymous';
-    image.referrerPolicy = 'no-referrer';
-    image.decoding = 'async';
-    image.src = url;
-    PORTRAITS.set(url, image);
-    // Redraw once it lands, so a face that arrives late is not stuck waiting
-    // for the next score to change.
-    image.addEventListener('load', () => {
+    return portraitFor(url, () => {
       this.signature = '\u0000portrait';
     });
-    return null;
   }
 
   private draw(rows: readonly NetLeaderEntry[]): void {
@@ -638,16 +615,7 @@ class PanelSurface {
       // names line up down the board. A row that shuffled left because its
       // player had no face would break the one thing a ranked list is for.
       const nameX = handleX + faceSize + width * 0.012;
-      if (face) {
-        ctx.save();
-        // Round, like every other portrait the portal shows.
-        ctx.beginPath();
-        ctx.arc(handleX + faceSize / 2, centreY, faceSize / 2, 0, Math.PI * 2);
-        ctx.closePath();
-        ctx.clip();
-        ctx.drawImage(face, handleX, centreY - faceSize / 2, faceSize, faceSize);
-        ctx.restore();
-      }
+      if (face) drawPortrait(ctx, face, handleX, centreY, faceSize);
 
       // Shrunk to fit whatever is left between the portrait and the figure. It
       // is the one field whose length is not ours to choose, so it is the one

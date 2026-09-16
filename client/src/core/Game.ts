@@ -649,7 +649,7 @@ export class Game {
 
     player.setMovementProfile(state.moveMultiplier, state.jumpVelocity);
     player.setRobotSlot(state.robotSlot);
-    player.setDisplayName(state.displayName);
+    player.setDisplayName(state.displayName, state.avatarUrl);
 
     if (state.ready) {
       player.reconcile({

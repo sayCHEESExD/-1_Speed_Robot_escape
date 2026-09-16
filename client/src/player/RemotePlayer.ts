@@ -126,7 +126,7 @@ export class RemotePlayer {
     // The portal display name, whatever it is now: signing in mid-session
     // renames a player over everyone else's head without a reload. `set` is a
     // string compare when the name has not moved, which is almost always.
-    this.plate.set(state.displayName, this.mount.height);
+    this.plate.set(state.displayName, state.avatarUrl, this.mount.height);
 
     this.onTreadmill = state.treadmill > 0;
     this.input.horizontalSpeed =

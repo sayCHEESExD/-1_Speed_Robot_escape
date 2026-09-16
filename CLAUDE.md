@@ -618,6 +618,16 @@ synthesised.**
   IS on this course. Both are fetched and decoded once; a blocked or missing
   file changes which sound plays and nothing else, because `playSample` falls
   back to the synthesised voice.
+- **THE WALK IS MIXED TO SIT WITH THE MUSIC, and that is arithmetic rather
+  than taste.** The walk recording and the music track are within half a
+  decibel of each other (-12.3 dBFS RMS against -11.9), so whatever each is
+  multiplied by IS the balance between them. Music reaches the master at
+  `MUSIC_GAIN`; the walk reaches it at `SFX_GAIN` times its own envelope, and
+  an envelope under 1 therefore put a nine-unit machine's footsteps several
+  decibels below its own soundtrack - reported, correctly, as not being able to
+  hear them. The envelope is scaled ON THE FOOTSTEP NODE and not on the bus,
+  because this is the one continuous sound in the game: raising `SFX_GAIN` to
+  fix it would shout every jump, landing and menu blip along with it.
 - **`robot steps.mp3` is the WALK, and it is LOOPED rather than fired per
   stride.** It is nearly three seconds of a mech walking — several footfalls,
   not one — so retriggering it on every stride would cut each step off before
@@ -664,7 +674,14 @@ currency. Exposed as `window.Legion.SDK`, loaded from a CDN script in
   by the local player and every remote one.
 - **No asset URL is built from an id.** `GET /v1/avatar/items/{id}` hands back
   an `assetPaths` object and those paths are used verbatim.
-- A portrait URL is pinned to `https://static.bloxity.io/`.
+- A portrait URL is pinned to `https://static.bloxity.io/`, and every surface
+  that draws one goes through **`Portraits.ts`** - ONE cache, keyed by URL and
+  shared by the nameplates and both boards, because the player running beside
+  you is usually on a board as well and one decode has to serve both.
+  `crossOrigin` is set there and nowhere else: each of those canvases becomes a
+  WebGL TEXTURE, and an image fetched without CORS TAINTS the canvas, at which
+  point the upload throws and the whole board or plate goes blank. A portrait
+  whose host refuses CORS simply never decodes and the name is drawn alone.
 - **THE VISIBLE NAME IS `displayName`, falling back to `username`.** Both are
   names a person chose and the portal's own friend list and toasts read
   `displayName || username`, so this does too. `_id` is an account id and
@@ -687,6 +704,13 @@ currency. Exposed as `window.Legion.SDK`, loaded from a CDN script in
   cannot ask the portal who somebody else is. They are sent on join and again
   on `onUserChanged`, so signing in mid-session renames a player for everyone
   without a reload.
+- **A NAMEPLATE IS THE FACE OVER THE NAME**, stacked rather than side by side,
+  and hung `CLEARANCE` above the MECH's height. Stacked because the plate is
+  read from any angle: a row that grew sideways with the length of a name would
+  hang off one shoulder and swing as the camera moved. High because the rider
+  wears whatever the portal has put on their head - wings, tall hats, antennae
+  all stand well over a bare skull, and a name tangled in somebody's
+  accessories is worse than a name slightly too high.
 - A nested Colyseus schema does NOT bubble its changes to its parent, so
   `avatar` needs its own `onChange`.
 

@@ -320,14 +320,14 @@ export class LocalPlayer {
   }
 
   /**
-   * Show the name the SERVER says this player is called.
+   * Show the name and face the SERVER says this player has.
    *
    * Replicated rather than read from the portal SDK directly, so the plate
    * over the local mech and the plate every other client draws over it are
-   * the same string from the same source.
+   * the same name and the same portrait from the same source.
    */
-  setDisplayName(displayName: string): void {
-    this.plate.set(displayName, this.mount.height);
+  setDisplayName(displayName: string, avatarUrl: string): void {
+    this.plate.set(displayName, avatarUrl, this.mount.height);
   }
 
   /**
