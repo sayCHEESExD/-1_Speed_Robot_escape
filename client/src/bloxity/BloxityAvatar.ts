@@ -244,9 +244,24 @@ export class BloxityAvatar {
       const stillWanted = slot === 'hat' ? this.currentHat : this.currentBack;
       if (stillWanted !== wanted) return;
 
+      /*
+       * NO `flipY = false` HERE, AND THAT IS THE WHOLE DIFFERENCE.
+       *
+       * The skin above turns it off because it is applied to the GLB body, and
+       * glTF puts the UV origin at the TOP left - which is why three.js flips
+       * for that format. An accessory is an OBJ, and OBJ uses the OpenGL
+       * convention with the origin at the BOTTOM left, which is already
+       * three.js's default. Forcing the glTF rule onto it flipped every hat
+       * and back item vertically, and a texture wrapped upside down over a
+       * helmet does not read as upside down - it reads as smeared garbage,
+       * which is exactly how it was reported.
+       *
+       * Bloxity's own renderer is the oracle: it sets `flipY` in precisely one
+       * place in its whole bundle, on the skin, and loads hats and back items
+       * with nothing but the two filters below.
+       */
       const texture = await this.textureLoader.loadAsync(assetUrl(texturePath));
       texture.colorSpace = SRGBColorSpace;
-      texture.flipY = false;
       texture.magFilter = NearestFilter;
       texture.minFilter = NearestFilter;
       texture.generateMipmaps = false;

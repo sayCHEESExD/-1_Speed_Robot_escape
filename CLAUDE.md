@@ -774,6 +774,15 @@ currency. Exposed as `window.Legion.SDK`, loaded from a CDN script in
   portal body was left with no texture at all - which renders white.
 - **No asset URL is built from an id.** `GET /v1/avatar/items/{id}` hands back
   an `assetPaths` object and those paths are used verbatim.
+- **THE SKIN IS FLIPPED AND AN ACCESSORY IS NOT.** `flipY = false` belongs to
+  the SKIN alone, because it goes on the GLB body and glTF puts the UV origin
+  at the TOP left. A hat or a back item is an OBJ, and OBJ uses the OpenGL
+  convention with the origin at the BOTTOM left - three.js's own default.
+  Applying the glTF rule to an accessory flipped it vertically, which on a
+  helmet does not read as upside down but as smeared garbage. Bloxity's own
+  bundle sets `flipY` in exactly ONE place, on the skin, and loads accessories
+  with nothing but the two nearest filters; when in doubt about a texture
+  convention, that bundle is the oracle.
 - A portrait URL is pinned to `https://static.bloxity.io/`, and every surface
   that draws one goes through **`Portraits.ts`** - ONE cache, keyed by URL and
   shared by the nameplates and both boards, because the player running beside
