@@ -17,6 +17,7 @@ import {
   type LegionProportions,
 } from './legionTypes.js';
 import { NearestFilter } from 'three';
+import { riderNeckScale } from '@robot/shared';
 
 const SCOPE = 'bloxity/avatar';
 
@@ -53,9 +54,22 @@ export class BloxityAvatar {
   private readonly loadedTextures: Texture[] = [];
 
   /** What is currently worn, so an unchanged patch does no work. */
-  private currentSkin: string | null = null;
-  private currentHat: string | null = null;
-  private currentBack: string | null = null;
+  /*
+   * What is currently WORN in each slot.
+   *
+   * THREE states, not two, and the third is the whole reason this is not a
+   * plain `string | null`: `undefined` means "nothing has been applied to this
+   * body yet", `null` means "applied, and the answer was none".
+   *
+   * Collapsing those two is a real bug and it shipped. A rebind used to set
+   * these to `null` to mean "re-wear everything", but for a player with no
+   * skin equipped the WANTED value is also `null` - so the comparison in
+   * `applySkin` matched, the load was skipped, and a freshly built Bloxity
+   * body was left with no texture at all, which renders white.
+   */
+  private currentSkin: string | null | undefined = undefined;
+  private currentHat: string | null | undefined = undefined;
+  private currentBack: string | null | undefined = undefined;
 
   private readonly objLoader = new OBJLoader();
   private readonly textureLoader = new TextureLoader();
@@ -106,9 +120,10 @@ export class BloxityAvatar {
     this.defaultMap = this.material?.map ?? null;
     this.wearingBloxityBody = bloxityBody;
 
-    this.currentSkin = null;
-    this.currentHat = null;
-    this.currentBack = null;
+    // UNDEFINED, not null: "not applied to this body yet". See the fields.
+    this.currentSkin = undefined;
+    this.currentHat = undefined;
+    this.currentBack = undefined;
   }
 
   dispose(): void {
@@ -290,8 +305,17 @@ export class BloxityAvatar {
     const spine2 = this.bones.get('Spine2');
     if (spine2) spine2.scale.x = num(p.shoulderWidth);
 
+    /*
+     * The portal's head proportion, TIMES this game's own.
+     *
+     * Not `setScalar(num(p.headScale))`. That ran after the rig was bound and
+     * overwrote the enlargement the pilot needs to be recognisable from the
+     * chase camera, putting almost every player back on a head scale of
+     * exactly 1. `riderNeckScale` multiplies the two, so a player's own choice
+     * still does what they chose.
+     */
     const neck = this.bones.get('Neck1');
-    if (neck) neck.scale.setScalar(num(p.headScale));
+    if (neck) neck.scale.setScalar(riderNeckScale(num(p.headScale)));
 
     for (const name of ['ArmL1', 'ArmR1'] as const) {
       const bone = this.bones.get(name);

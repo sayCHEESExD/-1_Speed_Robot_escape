@@ -19,6 +19,8 @@
  * scale-down step: what is written here is what stands in the world.
  */
 
+import { PLAYER_HEIGHT } from '../constants/world.js';
+
 /**
  * Blocky proportions, in world units, for the generic mech the client builds
  * every frame from.
@@ -321,17 +323,52 @@ export const shoulderTopY = (shape: RobotShape): number =>
 export const RIDER_HIP_HEIGHT = 1.21;
 
 /**
+ * How much of the pilot has to stand clear of the mech's own shoulder line.
+ *
+ * A pilot's head is about a seventh of them - roughly 0.45 units at
+ * `PLAYER_HEIGHT` - so this is a head and a little of the shoulders beneath it.
+ * Less than a whole head reads as something poking out of the machine rather
+ * than as a person riding it, which is exactly what it looked like.
+ */
+export const RIDER_HEAD_CLEARANCE = 0.62;
+
+/**
  * Where the pilot model goes, in mech space.
  *
- * Their FEET are on the cockpit floor - they are standing at the controls, not
- * sitting on a saddle - and they are set back from centre so the canopy brow
- * is in front of their face rather than through it.
+ * THE SEAT IS DERIVED FROM THE SHOULDER LINE, NOT FROM THE FLOOR ALONE, and
+ * that is the whole point of it.
+ *
+ * Standing the pilot on `cockpitFloorY` and leaving it there was correct
+ * arithmetic against the wrong landmark. The cockpit floor rises with the hips
+ * and the waist, but the SHOULDER BLOCKS rise with the torso and the shoulder
+ * size, and they rise faster: across the roster the floor climbs 0.8 units
+ * while the shoulder top climbs 1.39. So the pilot's head cleared the armour by
+ * 0.3 on the starter, by 0.15 in the middle of the roster, and on the last
+ * seven frames it did not clear it at all - the head finished up to 0.29 units
+ * BELOW the shoulder top, inside the machine, which is why the player could not
+ * find themselves on screen.
+ *
+ * Taking whichever is higher fixes it for every frame at once and gives them
+ * all the SAME silhouette: exactly `RIDER_HEAD_CLEARANCE` of pilot above the
+ * armour, whether they are riding the scrap heap or the colossus.
+ *
+ * They are still INSIDE THE SHELL - this lifts the tallest case by 0.91 units
+ * and the pilot's hips stay a clear 0.78 below the top of the chest, so the
+ * body is in the cockpit and the head and shoulders are out of it, which is
+ * the design. It is a taller stance in the same hole, not a seat on the roof.
+ *
+ * Set back from centre, as before, so the canopy brow is in front of their
+ * face rather than through it.
  */
-const seat = (shape: RobotShape): { x: number; y: number; z: number } => ({
-  x: 0,
-  z: -shape.cockpitDepth * 0.12,
-  y: cockpitFloorY(shape),
-});
+const seat = (shape: RobotShape): { x: number; y: number; z: number } => {
+  const floor = cockpitFloorY(shape);
+  const clear = shoulderTopY(shape) + RIDER_HEAD_CLEARANCE - PLAYER_HEIGHT;
+  return {
+    x: 0,
+    z: -shape.cockpitDepth * 0.12,
+    y: Math.max(floor, clear),
+  };
+};
 
 /**
  * The roster, in display order.

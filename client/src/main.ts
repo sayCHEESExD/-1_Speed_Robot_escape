@@ -30,7 +30,28 @@ const showBootError = (error: unknown): void => {
  */
 const paint = (): Promise<void> =>
   new Promise((resolve) => {
-    requestAnimationFrame(() => resolve());
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    requestAnimationFrame(finish);
+    /*
+     * A TIMER AS WELL, AND IT IS NOT BELT AND BRACES.
+     *
+     * `requestAnimationFrame` does not fire AT ALL in a tab that is not being
+     * drawn - backgrounded, minimised, a hidden preview pane, a phone with the
+     * browser behind another app. Waiting on it alone meant a load started in
+     * any of those never finished: the boot sat on its first status for ever
+     * and the game never appeared, which is a far worse bug than the blank
+     * frame yielding was added to avoid.
+     *
+     * Whichever arrives first wins. On a visible tab that is the frame, and
+     * the yield does what it was for; on a hidden one it is this, and the load
+     * simply runs straight through.
+     */
+    window.setTimeout(finish, 120);
   });
 
 const main = async (): Promise<void> => {

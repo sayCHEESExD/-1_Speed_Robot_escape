@@ -14,6 +14,41 @@ export const FBX_TO_WORLD_SCALE = 0.01;
 export const PLAYER_HEIGHT = 3.2;
 
 /**
+ * How much larger than life the pilot's head is drawn.
+ *
+ * The rider is three units of person on a nine-unit machine, framed by a
+ * camera that has to keep the MECH on screen - so the only part of them that
+ * is ever clear of the armour is a head under half a unit across. At playing
+ * distance that reads as a fitting on the robot rather than as a person riding
+ * it, which is the thing this game is about.
+ *
+ * A NUDGE, not a caricature: the body still has to look like it belongs to
+ * somebody in a cockpit. Applied to the neck bone by `PlayerRig`, so it costs
+ * nothing per frame and covers the bundled rider and a Bloxity avatar alike.
+ */
+export const RIDER_HEAD_SCALE = 1.22;
+
+/**
+ * THE ONE PLACE THE PILOT'S NECK SCALE IS DECIDED.
+ *
+ * Two things want to write that bone and neither may simply overwrite the
+ * other: this game enlarges the head so a rider reads at chase-camera
+ * distance, and the PORTAL lets a player choose their own head proportion.
+ * Writing one on top of the other is how the fix silently stopped working -
+ * the proportions pass runs after the rig is bound and reset the bone to the
+ * portal's figure, which for almost everybody is exactly 1.
+ *
+ * They MULTIPLY. A player who made their head big still has a big head, a
+ * player who made it small still has a small one, and every one of them is
+ * readable from behind.
+ */
+export const riderNeckScale = (portalHeadScale = 1): number => {
+  const chosen =
+    Number.isFinite(portalHeadScale) && portalHeadScale > 0 ? portalHeadScale : 1;
+  return RIDER_HEAD_SCALE * chosen;
+};
+
+/**
  * How far the robot model is lifted off the simulation's contact line.
  *
  * ZERO, and deliberately: a mech STANDS on its feet. The geometry builder puts

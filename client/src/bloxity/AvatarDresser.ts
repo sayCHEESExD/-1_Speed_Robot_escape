@@ -1,7 +1,6 @@
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_PROPORTIONS,
-  isDefaultAppearance,
   type AvatarAppearance,
   type AvatarProportions,
 } from '@robot/shared';
@@ -39,7 +38,13 @@ export class AvatarDresser {
   private appearance: AvatarAppearance = DEFAULT_APPEARANCE;
   private proportions: AvatarProportions = DEFAULT_PROPORTIONS;
 
-  /** The body currently built, as a key. Empty means the bundled default. */
+  /**
+   * The body currently built, as a key.
+   *
+   * Empty ONLY before the first look arrives - the state a mount is born in,
+   * wearing the bundled rider. Every look after that has a key, the default
+   * avatar's included, so arriving at the default still triggers a build.
+   */
   private bodyKey = '';
   /**
    * Guards against an out-of-order build.
@@ -76,11 +81,27 @@ export class AvatarDresser {
     this.appearance = appearance;
     this.proportions = proportions;
 
-    const wantsBloxityBody = !isDefaultAppearance(appearance);
-    const key = wantsBloxityBody ? bodyKeyOf(appearance) : '';
+    /*
+     * THE BLOXITY BODY IS BUILT EVEN WHEN NOTHING IS EQUIPPED.
+     *
+     * This used to ask `isDefaultAppearance` first and, for a player wearing
+     * no items, skip the build entirely and keep the bundled `player.fbx`.
+     * That is not what "default avatar" means on the portal: Bloxity's default
+     * IS a real avatar - their `player.glb` body wearing `skins/0.png` - and a
+     * player who picks it was being shown this project's own model and texture
+     * instead of the one they chose. `applySkin` was already correct and could
+     * never run, because it only reaches for the portal's default skin when it
+     * is on a Bloxity body, and it never was.
+     *
+     * `build` handles an empty appearance on its own: it clones the base body
+     * and swaps no parts, which is exactly the default avatar. So the decision
+     * is no longer "did they equip anything" but "can the portal body be had at
+     * all" - and that is answered by the build returning null, below.
+     */
+    const key = bodyKeyOf(appearance);
     if (key !== this.bodyKey) {
       this.bodyKey = key;
-      void this.rebuildBody(wantsBloxityBody, appearance);
+      void this.rebuildBody(appearance);
     }
 
     // The worn layer goes on regardless: it is valid on either body, and on a
@@ -136,16 +157,18 @@ export class AvatarDresser {
     return { ...appearance, headId };
   }
 
-  private async rebuildBody(
-    wantsBloxityBody: boolean,
-    appearance: AvatarAppearance,
-  ): Promise<void> {
+  private async rebuildBody(appearance: AvatarAppearance): Promise<void> {
     const token = (this.bodyToken += 1);
 
-    // Null covers three cases that all mean the same thing to the mount: the
-    // player is wearing nothing Bloxity, the asset could not be fetched, or
-    // the base body itself is unavailable. Each restores the bundled rider.
-    const model = wantsBloxityBody ? await bloxityRiderFactory.build(appearance) : null;
+    /*
+     * Null is now the ONE genuine fallback: the portal body could not be had.
+     *
+     * No SDK, a blocked CDN, a failed fetch - those are the cases that leave a
+     * player with the bundled rider and the texture it ships with, because
+     * there is nothing else to draw them as. "Wearing no items" is NOT one of
+     * them any more; that is a Bloxity avatar like any other.
+     */
+    const model = await bloxityRiderFactory.build(appearance);
     if (this.disposed || token !== this.bodyToken) return;
 
     this.mount.setRider(model);

@@ -197,10 +197,32 @@ against a wall earns nothing either, because the mech is not going anywhere.
   the robot's transform onto the rider" step — a copy is always a frame late
   and always slides, and "permanently sitting on the robot" has to be true at
   four hundred units a second.
-- `riderSeatY` is DERIVED from the shape, once, and every `riderOffset.y` is
-  `riderSeatY(shape) - RIDER_HIP_HEIGHT`. The supplied FBX puts its origin at
-  the feet and its hips 1.21 units above that; authoring the seat per robot is
-  how one entry ends up with its pilot buried to the knees.
+- The seat is DERIVED from the shape, once, and authoring it per robot is how
+  one entry ends up with its pilot buried to the knees. The supplied FBX puts
+  its origin at the feet and its hips 1.21 units above that.
+- **THE SEAT IS MEASURED AGAINST THE SHOULDER LINE, NOT THE COCKPIT FLOOR.**
+  Standing the pilot on `cockpitFloorY` was correct arithmetic against the
+  wrong landmark: the floor rises with the hips and the waist, but the shoulder
+  blocks rise with the torso AND the shoulder size, and they rise faster -
+  across the roster the floor climbs 0.8 units while the shoulder top climbs
+  1.39. The pilot's head therefore cleared the armour by 0.3 on the starter,
+  0.15 in the middle of the roster, and on the last SEVEN frames it did not
+  clear it at all, finishing up to 0.29 BELOW the shoulder top. Measured from
+  the real chase camera, the head was invisible on every frame from slot 6 up.
+  `seat` now takes whichever is higher, so all twelve give the same silhouette:
+  exactly `RIDER_HEAD_CLEARANCE` of pilot above the armour. The pilot is still
+  INSIDE the shell - even the tallest case leaves their hips 0.78 below the top
+  of the chest - which is a taller stance in the same hole, not a seat on the
+  roof.
+- **THE PILOT'S HEAD IS DRAWN LARGER THAN LIFE (`riderNeckScale`)**, because
+  three units of person on nine units of machine, framed by a camera that has
+  to keep the MECH on screen, puts under half a unit of head above the armour.
+  Applied to the neck bone, so it costs nothing per frame and covers the
+  bundled rider and a portal avatar alike. TWO things write that bone - this
+  and the portal's own `headScale` proportion - and they MULTIPLY through one
+  function. Overwriting instead is how the enlargement silently stopped
+  working: the proportions pass runs after the rig is bound and reset the bone
+  to the portal's figure, which for almost everybody is exactly 1.
 - Limbs are **two segments each** with a real knee and elbow. A one-node limb
   pivots the whole leg about the hip and the "knee bend" is just more hip
   swing, which is exactly how a procedural walk gives itself away.
@@ -735,6 +757,21 @@ currency. Exposed as `window.Legion.SDK`, loaded from a CDN script in
   Bloxity's `player.glb` carries the twelve bone names `PlayerRig` binds.
 - `AvatarDresser` is the ONE thing that decides which body a rider has, shared
   by the local player and every remote one.
+- **"NOTHING EQUIPPED" IS A BLOXITY AVATAR, NOT THE ABSENCE OF ONE.** The
+  portal's DEFAULT avatar is a real look - their `player.glb` wearing
+  `skins/0.png` - so the dresser builds the portal body whatever is equipped,
+  and `build` handles an empty appearance by cloning the base body and swapping
+  no parts. Asking `isDefaultAppearance` first and keeping the bundled
+  `player.fbx` is how a player who chose the default was shown this project's
+  own model and texture instead of the one they picked. The bundled rider is
+  the fallback for exactly ONE thing: the portal body could not be had - no
+  SDK, a blocked CDN, a failed fetch - which is the build returning null.
+- **A WORN SLOT HAS THREE STATES, AND COLLAPSING TWO OF THEM IS A BUG.**
+  `undefined` is "nothing applied to this body yet", `null` is "applied, and
+  the answer was none". `rebind` used to clear the slots to `null` to mean
+  "re-wear everything", but for a player with no skin the WANTED value is also
+  `null`, so the compare matched, the load was skipped, and a freshly built
+  portal body was left with no texture at all - which renders white.
 - **No asset URL is built from an id.** `GET /v1/avatar/items/{id}` hands back
   an `assetPaths` object and those paths are used verbatim.
 - A portrait URL is pinned to `https://static.bloxity.io/`, and every surface

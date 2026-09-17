@@ -2,6 +2,7 @@ import { Bone, Object3D, SkinnedMesh, Quaternion, Vector3 } from 'three';
 import { logger } from '../../util/logger.js';
 import type { PoseBuffer } from '../PoseBuffer.js';
 import { BONE_INDEX, BONE_NAMES, type BoneName } from './boneNames.js';
+import { riderNeckScale } from '@robot/shared';
 
 const SCOPE = 'PlayerRig';
 
@@ -69,6 +70,8 @@ export class PlayerRig {
       this.bindings.set(name, this.createBinding(bone, referenceWorldInverse));
     }
 
+    this.enlargeHead();
+
     if (this.missingBones.length > 0) {
       logger.warn(
         SCOPE,
@@ -77,6 +80,33 @@ export class PlayerRig {
         '- those bones will simply not animate',
       );
     }
+  }
+
+  /**
+   * THE PILOT'S HEAD, A LITTLE LARGER THAN LIFE.
+   *
+   * The player is three units of person riding nine units of machine, seen
+   * from a chase camera that frames the MECH - so the one part of them that is
+   * ever above the armour is a head about forty-five hundredths of a unit
+   * across, and at playing distance that reads as a detail on the robot rather
+   * than as a person on it.
+   *
+   * Scaled on the NECK BONE, which is where the head geometry hangs, so it
+   * costs nothing per frame and it works for the bundled rider and a Bloxity
+   * avatar alike - both bind these same twelve names. `applyPose` writes only
+   * quaternions, so this survives every frame without being re-applied.
+   *
+   * Deliberately modest. The head is the read; the BODY still has to look like
+   * it belongs to somebody sitting in a cockpit, and a pilot with a balloon for
+   * a head is a different art style rather than a clearer one.
+   *
+   * This is the UNDRESSED case - the bundled rider, and anyone the portal has
+   * no proportions for. A dressed avatar's proportions pass writes the same
+   * bone and goes through the same `riderNeckScale`, so the two agree.
+   */
+  private enlargeHead(): void {
+    const neck = this.bindings.get('Neck1');
+    neck?.bone.scale.setScalar(riderNeckScale());
   }
 
   /** True when every expected bone was bound. */
