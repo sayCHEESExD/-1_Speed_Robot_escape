@@ -1,7 +1,5 @@
 # +1 Speed Robot Escape
 
-test
-
 A browser multiplayer obby where you pilot a **Gundam-style mech** through a
 dark industrial facility. The robot walks, the robot jumps, and you ride it
 from an open cockpit in its chest — head and shoulders above the canopy rim,
