@@ -285,9 +285,10 @@ export class Game {
       onStageAwarded: (message) => this.onStageAwarded(message),
     });
 
-    // The room needs to know which Bloxity account this is, or a purchase
-    // fulfilled by webhook has no profile to land in.
-    this.network.setIdentityProvider(() => this.bloxity.getUser()?._id ?? null);
+    // WHO the player is, for their progress: the portal's login TOKEN, which
+    // the server verifies with Bloxity. Never the account id - the server
+    // takes that from Bloxity's answer and from nowhere else.
+    this.network.setTokenProvider(() => (this.bloxity.getUser() ? this.bloxity.getToken() : null));
     // Asked for at JOIN time rather than pushed after it, so the room has this
     // player's appearance in the very first patch everyone else receives.
     this.network.setLookProvider(() =>
@@ -311,6 +312,10 @@ export class Game {
       // arrives in the same handshake that reports there is no account. Ask
       // for it here rather than leaving the player called "Guest".
       this.network.sendIdentity(identityFromLegion(user, this.bloxity.getGuest()));
+      // And the login itself, so the room moves this session onto the
+      // account's progress - or back to this browser's - without a reconnect.
+      // Deduped inside, so the portal re-announcing the same user is free.
+      this.network.sendAuthToken(user ? this.bloxity.getToken() : null);
     });
 
     this.run = new RunController(this.world.collision, {

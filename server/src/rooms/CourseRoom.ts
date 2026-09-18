@@ -21,6 +21,7 @@ import {
   sanitizeIdentity,
   sanitizeProportions,
   type SetAvatarMessage,
+  type SetAuthTokenMessage,
   type SetIdentityMessage,
 } from '@robot/shared';
 import { serverConfig } from '../config/serverConfig.js';
@@ -28,7 +29,9 @@ import { MovementService } from '../movement/MovementService.js';
 import { RobotService } from '../progression/RobotService.js';
 import { buxGrants } from '../progression/BuxGrants.js';
 import { leaderboardService } from '../progression/LeaderboardService.js';
-import { profileStore } from '../progression/ProfileStore.js';
+import { bloxityAuth } from '../auth/BloxityAuth.js';
+import { withTimeout } from '../persistence/JsonStore.js';
+import { profileStore, type Identity, type Resolved } from '../progression/ProfileStore.js';
 import { RebirthService } from '../progression/RebirthService.js';
 import { SpeedService } from '../progression/SpeedService.js';
 import { StageService } from '../progression/StageService.js';
@@ -44,12 +47,33 @@ const SCOPE = 'CourseRoom';
 /** Seconds between autosaves of every connected player. */
 const AUTOSAVE_SECONDS = 15;
 
+/** Seconds between checks of the shared store for a signed-in player's purchases. */
+const GRANT_POLL_SECONDS = 10;
+
+/**
+ * How long a login switch waits for the profile it is LEAVING to be durable.
+ *
+ * Bounded, because the write queue itself never gives up: during an outage it
+ * would wait for ever, and a switch has to be able to say "storage is down,
+ * stay where you are". The write is not abandoned - it lands when it can.
+ */
+const SWITCH_SAVE_MS = 6000;
+
+/** Backoff between re-verifies of a token Bloxity could not check. Last repeats. */
+const REVERIFY_SECONDS = [5, 15, 45, 120, 300] as const;
+
 /** Options a client may pass on join. Both are cosmetic or identity only. */
 interface JoinOptions {
+  /** The browser-stored guest id. Refused if it is in the account key space. */
   playerId?: string;
   name?: string;
-  /** The Bloxity account id, when the player is signed in to the portal. */
-  bloxityId?: string;
+  /**
+   * The portal's TOKEN, when the player is signed in. Verified with Bloxity in
+   * `onAuth`; the account id comes from Bloxity's answer and nowhere else.
+   * There is deliberately no account-id option: a browser that could name an
+   * account could name anybody's.
+   */
+  token?: string;
   /**
    * The player's Bloxity appearance, so they are drawn correctly by everyone
    * already in the room from their very first patch rather than after a
@@ -112,18 +136,43 @@ export class CourseRoom extends Room<CourseState> {
   private readonly trails = new TrailService();
   private readonly guardian = new GuardianService();
 
-  /** Browser-stored player id per session, for persistence. */
+  /**
+   * Storage key per session: `bloxity:<account>` for a verified login, the
+   * browser id for a guest, absent for an ephemeral session. The leaderboard
+   * reads this to line live players up with their stored profiles.
+   */
   private readonly playerIds = new Map<string, string>();
 
   /**
-   * Bloxity account id per session, for Bux fulfilment.
-   *
-   * Separate from `playerIds` because they are different identities: the
-   * player id is a uuid this browser generated and the Bloxity id belongs to
-   * an account that can sign in from anywhere. A purchase is made by the
-   * ACCOUNT, so that is what a grant is addressed to.
+   * WHO each session is. Only ever set from a token Bloxity verified, or from
+   * a sanitised browser id - never from an account id a client supplied.
    */
-  private readonly bloxityIds = new Map<string, string>();
+  private readonly identities = new Map<string, Identity>();
+
+  /** The last token each session presented, for re-verifying an outage. */
+  private readonly tokens = new Map<string, string>();
+
+  /**
+   * Sessions mid login-switch. Their autosaves are BLOCKED while the profile
+   * underneath them is being swapped - a save landing half-way through would
+   * write one profile's state into the other's key.
+   */
+  private readonly switching = new Set<string>();
+
+  /** The newest login that arrived mid-switch. Only the newest counts. */
+  private readonly queuedTokens = new Map<string, string>();
+
+  /** Re-verify timers for sessions whose Bloxity check was `unavailable`. */
+  private readonly reverify = new Map<
+    string,
+    { attempt: number; timer: ReturnType<typeof setTimeout> | undefined }
+  >();
+
+  /** Sessions with a grant claim in flight, so two never overlap. */
+  private readonly claiming = new Set<string>();
+
+  /** Seconds since signed-in sessions were last checked for purchases. */
+  private grantTimer = 0;
 
   /** Scratch motion, so the per-tick death check allocates nothing. */
   private readonly scratch: PlayerMotion = createMotion();
@@ -160,6 +209,9 @@ export class CourseRoom extends Room<CourseState> {
     this.onMessage(MessageType.Rebirth, (client) => this.onRebirth(client));
     this.onMessage(MessageType.BuyTrail, (client, message: BuyTrailMessage) =>
       this.onBuyTrail(client, message),
+    );
+    this.onMessage(MessageType.SetAuthToken, (client, message: SetAuthTokenMessage) =>
+      this.onAuthToken(client, message),
     );
     this.onMessage(MessageType.SetIdentity, (client, message: SetIdentityMessage) =>
       this.onSetIdentity(client, message),
@@ -198,7 +250,7 @@ export class CourseRoom extends Room<CourseState> {
    * Nothing about this is client-side: a client cannot decline to call it and
    * cannot see the number it is compared against.
    */
-  override onAuth(): boolean {
+  override async onAuth(_client: Client, options: JoinOptions = {}): Promise<Resolved> {
     if (this.clients.length >= MAX_PLAYERS_PER_ROOM) {
       logger.warn(
         SCOPE,
@@ -207,20 +259,51 @@ export class CourseRoom extends Room<CourseState> {
       );
       throw new ServerError(4103, 'room is full');
     }
-    return true;
+
+    /*
+     * WHO THIS IS, AND THEIR PROFILE, READ FROM STORAGE NOW.
+     *
+     * The token is verified with Bloxity; the profile is read at this moment,
+     * not from anything cached at boot, because another pod may have saved
+     * this player a second ago.
+     *
+     * If storage cannot be READ the join is REFUSED - not let in empty. A
+     * player admitted on an empty profile would autosave over their real one
+     * within fifteen seconds. The client's join backoff retries, and gets in
+     * as soon as the database is back.
+     */
+    try {
+      return await profileStore.resolveJoin(options.token, options.playerId);
+    } catch (error) {
+      logger.error(
+        SCOPE,
+        `refused a join: storage unreadable - ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new ServerError(4105, 'progress storage is unavailable, retrying');
+    }
   }
 
-  override onJoin(client: Client, options: JoinOptions = {}): void {
+  override onJoin(client: Client, options: JoinOptions = {}, auth?: Resolved): void {
     const player = new PlayerState();
     player.sessionId = client.sessionId;
 
-    const playerId = typeof options.playerId === 'string' ? options.playerId.slice(0, 64) : '';
-    if (playerId) this.playerIds.set(client.sessionId, playerId);
+    const identity: Identity = auth?.identity ?? {
+      kind: 'ephemeral',
+      key: '',
+      accountId: '',
+      browserId: '',
+      verification: 'none',
+    };
+    this.identities.set(client.sessionId, identity);
+    if (identity.key) this.playerIds.set(client.sessionId, identity.key);
+    if (typeof options.token === 'string' && options.token) {
+      this.tokens.set(client.sessionId, options.token);
+    }
 
     // Restore BEFORE any service initialises: level, movement speed and the
     // equipped robot are all derived from the restored figures, so restoring
     // afterwards would leave every one of them a step out of date.
-    const restored = playerId ? profileStore.restore(playerId, player) : false;
+    const restored = profileStore.restore(auth?.profile ?? null, player);
 
     this.state.players.set(client.sessionId, player);
 
@@ -230,12 +313,13 @@ export class CourseRoom extends Room<CourseState> {
     this.speeds.initialise(player);
     this.stages.initialise(client.sessionId);
 
-    const bloxityId = typeof options.bloxityId === 'string' ? options.bloxityId : '';
-    if (bloxityId) {
-      this.bloxityIds.set(client.sessionId, bloxityId);
-      // Anything bought while they were away, or in another session.
-      this.applyGrants(client.sessionId, player);
-    }
+    // Anything bought while they were away, or on another pod. Only ever for a
+    // VERIFIED account - never for an id a client merely claimed.
+    if (identity.kind === 'account') void this.applyGrants(client.sessionId);
+    // Bloxity could not be asked: play as a guest now, become the account the
+    // moment it answers.
+    if (identity.verification === 'unavailable') this.scheduleReverify(client);
+
     if (options.avatar) this.writeAvatar(player, options.avatar);
     /*
      * The name they are seen under.
@@ -265,24 +349,32 @@ export class CourseRoom extends Room<CourseState> {
 
     logger.info(
       SCOPE,
-      `join ${client.sessionId} (${restored ? 'restored' : 'new'}) ` +
+      `join ${client.sessionId} as ${describeIdentity(identity)} ` +
+        `(${auth?.migrated ? 'migrated' : restored ? 'restored' : 'new'}) ` +
         `level=${player.level} wins=${player.wins} robot=${player.robotSlot}`,
     );
   }
 
   override onLeave(client: Client): void {
-    const player = this.state.players.get(client.sessionId);
-    const playerId = this.playerIds.get(client.sessionId);
-    if (player && playerId) profileStore.save(playerId, player);
+    const sessionId = client.sessionId;
+    const player = this.state.players.get(sessionId);
+    const identity = this.identities.get(sessionId);
+    // Saved even mid-switch: the key is still the one this session was on,
+    // and the switch notices the player has gone and stops.
+    if (player && identity?.key) void profileStore.save(identity.key, player);
 
-    this.state.players.delete(client.sessionId);
-    this.movement.forget(client.sessionId);
-    this.speeds.forget(client.sessionId);
-    this.stages.forget(client.sessionId);
-    this.bloxityIds.delete(client.sessionId);
-    this.robots.forget(client.sessionId);
-    this.trails.forget(client.sessionId);
-    this.playerIds.delete(client.sessionId);
+    this.state.players.delete(sessionId);
+    this.movement.forget(sessionId);
+    this.speeds.forget(sessionId);
+    this.stages.forget(sessionId);
+    this.robots.forget(sessionId);
+    this.trails.forget(sessionId);
+    this.playerIds.delete(sessionId);
+    this.identities.delete(sessionId);
+    this.tokens.delete(sessionId);
+    this.queuedTokens.delete(sessionId);
+    this.cancelReverify(sessionId);
+    if (identity?.key && !this.keyInUse(identity.key)) profileStore.forget(identity.key);
     // A player who disconnects mid-death has no placement coming: without this
     // their hold would tick down for ever against a session that is gone.
     this.dying.delete(client.sessionId);
@@ -293,9 +385,10 @@ export class CourseRoom extends Room<CourseState> {
   override onDispose(): void {
     // Every remaining player's progression, made durable before the room dies.
     for (const [sessionId, player] of this.state.players) {
-      const playerId = this.playerIds.get(sessionId);
-      if (playerId) profileStore.save(playerId, player);
+      const key = this.identities.get(sessionId)?.key;
+      if (key) void profileStore.save(key, player);
     }
+    for (const sessionId of [...this.reverify.keys()]) this.cancelReverify(sessionId);
     logger.info(SCOPE, `room ${this.roomId} disposed`);
   }
 
@@ -565,14 +658,17 @@ export class CourseRoom extends Room<CourseState> {
     /*
      * Bux bought by someone already in the room.
      *
-     * Guarded on `hasPending` so the common case - nobody has bought anything
-     * - is one boolean per tick rather than a walk of every player. The
-     * webhook queues rather than writing, because a direct write to the stored
-     * profile would be overwritten by this player's next autosave.
+     * POLLED from the shared store on a slow timer, because the webhook is
+     * load-balanced across pods and may well have landed on another one: no
+     * in-memory flag in THIS pod could know. Only verified accounts are
+     * checked, and each check is one indexed query that almost always finds
+     * nothing.
      */
-    if (buxGrants.hasPending) {
-      for (const [sessionId, player] of this.state.players) {
-        this.applyGrants(sessionId, player);
+    this.grantTimer += delta;
+    if (this.grantTimer >= GRANT_POLL_SECONDS) {
+      this.grantTimer = 0;
+      for (const [sessionId, identity] of this.identities) {
+        if (identity.kind === 'account') void this.applyGrants(sessionId);
       }
     }
 
@@ -617,21 +713,45 @@ export class CourseRoom extends Room<CourseState> {
    * second one. The profile is saved immediately so a crash between the
    * webhook and the next autosave cannot lose a purchase.
    */
-  private applyGrants(sessionId: string, player: PlayerState): void {
-    const bloxityId = this.bloxityIds.get(sessionId);
-    if (!bloxityId) return;
+  private async applyGrants(sessionId: string): Promise<void> {
+    const identity = this.identities.get(sessionId);
+    if (identity?.kind !== 'account' || !identity.accountId) return;
+    if (this.claiming.has(sessionId) || this.switching.has(sessionId)) return;
+    this.claiming.add(sessionId);
+    try {
+      const grants = await buxGrants.claim(identity.accountId, `${this.roomId}/${sessionId}`);
+      if (grants.length === 0) return;
 
-    const grants = buxGrants.drain(bloxityId);
-    if (grants.length === 0) return;
+      // Still the same session on the same account? If it switched or left
+      // while the claim was in flight, the lease simply runs out and the
+      // grants are claimed again by whoever that account is next.
+      const player = this.state.players.get(sessionId);
+      if (!player || this.identities.get(sessionId) !== identity) return;
 
-    for (const grant of grants) {
-      if (grant.wins > 0) wallet.add(player, grant.wins);
-      logger.info(
+      for (const grant of grants) {
+        // Already credited INTO this profile - a claim that re-took a grant
+        // whose previous claimer saved and then died before settling it.
+        if (profileStore.hasApplied(identity.key, grant.transactionId)) continue;
+        if (grant.wins > 0) wallet.add(player, grant.wins);
+        profileStore.noteApplied(identity.key, grant.transactionId);
+        logger.info(
+          SCOPE,
+          `granted ${grant.sku} to ${identity.key} (+${grant.wins} wins) [${grant.transactionId}]`,
+        );
+      }
+      // Durable FIRST - the Wins and the transaction ids in one document -
+      // and only then settled. A crash in between re-claims, never loses.
+      await profileStore.save(identity.key, player);
+      await buxGrants.settle(grants.map((grant) => grant.transactionId));
+    } catch (error) {
+      logger.warn(
         SCOPE,
-        `granted ${grant.sku} to ${sessionId} (+${grant.wins} wins) [${grant.transactionId}]`,
+        `grant check for ${identity.key} failed, will retry: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
       );
+    } finally {
+      this.claiming.delete(sessionId);
     }
-    this.persist(sessionId, player);
   }
 
   /** Put a player back at the starting arena and tell them so. */
@@ -693,11 +813,242 @@ export class CourseRoom extends Room<CourseState> {
     }
   }
 
+  // ------------------------------------------------------------- login switch
+
+  /**
+   * The portal login changed on a live session: signed in, signed out, or a
+   * different account.
+   *
+   * Handled HERE, on the session, rather than by reconnecting. A reconnect can
+   * land on a different pod before this one's last write has reached the
+   * database, and would then load the profile it had just left from an older
+   * copy.
+   *
+   * Serialised per session, and only the NEWEST login counts: one that
+   * arrives mid-switch is queued, replacing any older one still queued, and
+   * run when the current switch finishes.
+   */
+  private onAuthToken(client: Client, message: SetAuthTokenMessage): void {
+    const sessionId = client.sessionId;
+    if (!this.identities.has(sessionId)) return;
+    const token = typeof message?.token === 'string' ? message.token.slice(0, 8192) : '';
+    if (this.switching.has(sessionId)) {
+      this.queuedTokens.set(sessionId, token);
+      return;
+    }
+    void this.switchLogin(client, token);
+  }
+
+  private async switchLogin(client: Client, first: string): Promise<void> {
+    const sessionId = client.sessionId;
+    this.switching.add(sessionId);
+    try {
+      let token: string | undefined = first;
+      while (token !== undefined) {
+        await this.applyLogin(client, token);
+        token = this.queuedTokens.get(sessionId);
+        this.queuedTokens.delete(sessionId);
+      }
+    } finally {
+      this.switching.delete(sessionId);
+    }
+  }
+
+  /**
+   * Move one session from the profile it is on to the one this login means.
+   *
+   * The order is the whole point:
+   *
+   *  1. Work out the target. Nothing is touched yet.
+   *  2. Save the profile being LEFT, from live state, and wait for it to be
+   *     durable. If storage cannot take it, STOP - the session stays exactly
+   *     where it was, and the queued write lands later.
+   *  3. Read the target profile - seeding an empty account from this session's
+   *     LIVE guest progress on a first login. A failed read also stops here.
+   *  4. Apply it, re-running the same service initialisation order as
+   *     `onJoin`, re-apply any purchases, and put the player at the spawn.
+   */
+  private async applyLogin(client: Client, token: string): Promise<void> {
+    const sessionId = client.sessionId;
+    const current = this.identities.get(sessionId);
+    const player = this.state.players.get(sessionId);
+    if (!current || !player) return;
+
+    if (token) this.tokens.set(sessionId, token);
+    else this.tokens.delete(sessionId);
+
+    const verification = token ? await bloxityAuth.verify(token) : null;
+    if (!this.state.players.has(sessionId)) return;
+
+    let accountId = '';
+    if (verification?.status === 'verified') {
+      this.cancelReverify(sessionId);
+      if (current.kind === 'account' && current.accountId === verification.accountId) return;
+      accountId = verification.accountId;
+    } else if (verification?.status === 'unavailable') {
+      // Cannot tell who this is right now. Stay put - demoting a signed-in
+      // player to a guest because Bloxity blinked would be wrong - and ask
+      // again shortly.
+      this.scheduleReverify(client);
+      return;
+    } else {
+      // Signed out, or a token Bloxity rejected: fail closed, to a guest.
+      this.cancelReverify(sessionId);
+      if (current.kind !== 'account') return;
+    }
+
+    try {
+      // 2. The profile being LEFT, durable before anything else changes.
+      if (current.key) {
+        await withTimeout(profileStore.save(current.key, player), SWITCH_SAVE_MS, 'switch save');
+      }
+      if (!this.state.players.has(sessionId)) return;
+
+      // 3. The profile being ENTERED, read from storage now.
+      const resolved = accountId
+        ? await profileStore.enterAccount(
+            accountId,
+            current.browserId,
+            current.kind === 'guest' && current.key
+              ? { key: current.key, profile: profileStore.snapshot(current.key, player) }
+              : null,
+          )
+        : await profileStore.enterGuest(current.browserId, verification?.status ?? 'none');
+      if (!this.state.players.has(sessionId)) return;
+
+      // 4. Apply.
+      this.adopt(client, player, resolved);
+      logger.info(
+        SCOPE,
+        `switch ${sessionId}: ${describeIdentity(current)} -> ${describeIdentity(resolved.identity)}` +
+          `${resolved.migrated ? ' (migrated guest progress)' : ''} ` +
+          `level=${player.level} wins=${player.wins}`,
+      );
+    } catch (error) {
+      logger.warn(
+        SCOPE,
+        `switch ${sessionId} abandoned, staying as ${describeIdentity(current)}: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Put a resolved profile onto a live player, in `onJoin`'s order.
+   *
+   * The portal NAME and portrait are kept from the live session rather than
+   * the stored profile: they are the portal's current truth about who is
+   * sitting at this keyboard, and the client sends a fresh one on every login
+   * change anyway.
+   */
+  private adopt(client: Client, player: PlayerState, resolved: Resolved): void {
+    const sessionId = client.sessionId;
+    const displayName = player.displayName;
+    const avatarUrl = player.avatarUrl;
+
+    // Back to a fresh player's progression before restoring, so a switch to
+    // an empty profile does not keep what the previous one had.
+    const fresh = new PlayerState();
+    player.totalSpeed = fresh.totalSpeed;
+    player.wins = fresh.wins;
+    player.ownedRobots = fresh.ownedRobots;
+    player.rebirths = fresh.rebirths;
+    player.ownedTrails = fresh.ownedTrails;
+    player.trailSlot = fresh.trailSlot;
+    player.bestStage = fresh.bestStage;
+
+    const restored = profileStore.restore(resolved.profile, player);
+    player.displayName = displayName;
+    player.avatarUrl = avatarUrl;
+
+    const previous = this.identities.get(sessionId);
+    const identity = resolved.identity;
+    this.identities.set(sessionId, identity);
+    if (identity.key) this.playerIds.set(sessionId, identity.key);
+    else this.playerIds.delete(sessionId);
+    if (previous?.key && previous.key !== identity.key && !this.keyInUse(previous.key)) {
+      profileStore.forget(previous.key);
+    }
+
+    this.movement.initialise(player);
+    this.robots.initialise(player);
+    this.trails.initialise(player);
+    this.speeds.initialise(player);
+    this.stages.initialise(sessionId);
+    this.rebirths.sync(player);
+    if (restored) this.speeds.syncDerived(player);
+
+    this.placeAt(client, player, 'join');
+    if (identity.key) void profileStore.save(identity.key, player);
+    if (identity.kind === 'account') void this.applyGrantsAfterSwitch(sessionId);
+  }
+
+  /**
+   * `applyGrants` refuses a session mid-switch, and `adopt` runs INSIDE the
+   * switch - so the purchases wait for the switch to finish rather than being
+   * skipped until the next poll.
+   */
+  private async applyGrantsAfterSwitch(sessionId: string): Promise<void> {
+    while (this.switching.has(sessionId)) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    await this.applyGrants(sessionId);
+  }
+
+  /**
+   * Ask Bloxity again later, for a session whose token it could not check.
+   *
+   * Never a permanent demotion: the session plays on as it is meanwhile, and
+   * the first successful check switches it to the account in place.
+   */
+  private scheduleReverify(client: Client): void {
+    const sessionId = client.sessionId;
+    const token = this.tokens.get(sessionId);
+    if (!token) return;
+    const previous = this.reverify.get(sessionId);
+    if (previous) clearTimeout(previous.timer);
+    const attempt = (previous?.attempt ?? 0) + 1;
+    const seconds = REVERIFY_SECONDS[Math.min(attempt - 1, REVERIFY_SECONDS.length - 1)] ?? 300;
+    const timer = setTimeout(() => {
+      const pending = this.reverify.get(sessionId);
+      if (pending) this.reverify.set(sessionId, { ...pending, timer: undefined });
+      if (!this.identities.has(sessionId)) return;
+      const latest = this.tokens.get(sessionId);
+      if (latest) this.onAuthToken(client, { token: latest });
+    }, seconds * 1000);
+    this.reverify.set(sessionId, { attempt, timer });
+    logger.info(SCOPE, `Bloxity unavailable for ${sessionId}; re-verifying in ${seconds}s`);
+  }
+
+  private cancelReverify(sessionId: string): void {
+    const pending = this.reverify.get(sessionId);
+    if (pending?.timer) clearTimeout(pending.timer);
+    this.reverify.delete(sessionId);
+  }
+
+  /** Is any session in this room on this storage key? */
+  private keyInUse(key: string): boolean {
+    for (const identity of this.identities.values()) if (identity.key === key) return true;
+    return false;
+  }
+
   private persist(sessionId: string, player: PlayerState): void {
-    const playerId = this.playerIds.get(sessionId);
-    if (playerId) profileStore.save(playerId, player);
+    // Blocked mid-switch: the profile under this session is being replaced,
+    // and a save now would write one profile's state into the other's key.
+    if (this.switching.has(sessionId)) return;
+    const key = this.identities.get(sessionId)?.key;
+    if (key) void profileStore.save(key, player);
   }
 }
+
+/** A log-safe description of who a session is. Never the token. */
+const describeIdentity = (identity: Identity): string => {
+  if (identity.kind === 'account') return `account ${identity.key}`;
+  if (identity.kind === 'guest') {
+    return `guest ${identity.key}${identity.verification === 'unavailable' ? ' (bloxity unavailable)' : ''}`;
+  }
+  return 'ephemeral guest';
+};
 
 /**
  * The animation state a replicated player is in.

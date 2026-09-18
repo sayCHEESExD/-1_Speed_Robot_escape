@@ -17,6 +17,12 @@ export interface ServerConfig {
    * production: without one the endpoint grants Wins to anyone who finds it.
    */
   readonly buxWebhookSecret: string;
+  /**
+   * This game's Bloxity id - the `gameSlug` a portal token is verified
+   * against. Legion injects `BLOXITY_GAME_ID` into every backend pod; the
+   * fallback is this game's own slug, for a local server.
+   */
+  readonly bloxityGameId: string;
 }
 
 const int = (value: string | undefined, fallback: number): number => {
@@ -48,4 +54,5 @@ export const serverConfig: ServerConfig = {
   // `npm run dev` and `npm start`, so a restart finds the same file either way.
   dataDir: resolve(process.env['ROBOT_DATA_DIR'] ?? 'data'),
   buxWebhookSecret: process.env['BLOXITY_WEBHOOK_SECRET'] ?? '',
+  bloxityGameId: process.env['BLOXITY_GAME_ID']?.trim() || 'speed-robot-escape',
 };

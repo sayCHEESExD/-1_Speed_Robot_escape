@@ -14,7 +14,8 @@
     "@colyseus/core": "0.16.24",
     "@colyseus/schema": "^3.0.76",
     "@colyseus/ws-transport": "^0.16.5",
-    "@robot/shared": "*"
+    "@robot/shared": "*",
+    "mongodb": "~6.21.0"
   },
   "devDependencies": {
     "@types/node": "^22.18.0",

@@ -247,6 +247,15 @@ npm run size:client   # the browser build against the 12 MB budget
   `verify`. It connects more clients than one room may hold and asserts both
   halves of the limit: no room over capacity, and the overflow routed rather
   than turned away.
+- `verify:persistence` spawns the **built** server, joins it with real
+  colyseus.js clients and reads storage directly. Only Bloxity's token-verify
+  URL is stubbed, by a module preloaded with `node --import`; there are no test
+  switches in the server. It always runs against the JSON store; set
+  `MONGOD_BINARY` to a real `mongod` to add MongoDB **including outage tests**
+  (the script runs its own on port 27999), or `MONGODB_URI` to run against that
+  database - **which it wipes**. Not part of `verify`: it spawns processes and
+  takes a couple of minutes. The script header says how to get a `mongod`
+  without adding anything to this repository.
 
 Browser behaviour has to be checked in a real browser.
 
@@ -314,8 +323,45 @@ npm start --workspace @robot/server
 | ----------------- | ------ | ------------------------------------------------------------------ |
 | `VITE_SERVER_URL` | client | **Required in production.** Where the Colyseus server is, over `wss://`. Baked in at build time, so changing it means rebuilding. |
 | `PORT`            | server | Listen port. Defaults to 2573.                                     |
-| `ROBOT_DATA_DIR`  | server | Where profiles are written. Defaults to `data/` beside the server.  |
+| `MONGODB_URI`     | server | **Set by Legion.** The game+channel's own MongoDB. When present, every profile and every Bux purchase is stored there. |
+| `BLOXITY_GAME_ID` | server | The game slug sent when verifying a login token. Set by Legion; defaults to `speed-robot-escape`. |
+| `ROBOT_DATA_DIR`  | server | The JSON development store, used only when `MONGODB_URI` is unset. Defaults to `data/` beside the server. |
 | `BLOXITY_WEBHOOK_SECRET` | server | Verifies the Bux webhook when set.                       |
 
-On an ephemeral filesystem a redeploy wipes every player's progression unless
-`ROBOT_DATA_DIR` points at a mounted volume.
+### Where progress lives
+
+**Signed-in players keep their progress on their Bloxity ACCOUNT**, across
+browsers, devices, restarts, idle scale-to-zero and deploys. **Guests keep it
+in this browser**, exactly as before: a browser id in `localStorage` names
+their profile.
+
+- **On Legion, storage is MongoDB** (`MONGODB_URI`, one database per game and
+  channel, shared by every pod). One document per player, written with
+  idempotent per-key updates - never a whole-collection snapshot - and every
+  profile is read from the database at JOIN time, so a player who moves pods
+  never lands on a stale copy.
+- **Without `MONGODB_URI`** the server uses two JSON files in `ROBOT_DATA_DIR`,
+  written atomically. That is the development store; a pod's filesystem does
+  not outlive the pod.
+- **Who a player is comes from Bloxity, never from the browser.** The client
+  sends the portal's login TOKEN on join (and again when the login changes
+  mid-session) and the server asks
+  `POST https://api.bloxity.io/v1/auth/game-token/verify` what it means. Only a
+  2xx carrying an account `_id` is a login. A rejected token plays as a guest;
+  if Bloxity cannot be reached the player plays as a guest for now and is moved
+  onto their account the moment a re-check succeeds.
+- **First sign-in moves guest progress onto an EMPTY account**, once. An
+  account that already has progress is never overwritten. The guest copy is
+  kept as a recovery copy, marked `migratedTo`, and signing out afterwards
+  starts a fresh guest.
+- **The database being down refuses joins** rather than letting a player in on
+  an empty profile that would then be saved over their real one. The server
+  still boots and still answers `/health`; saves made during an outage are
+  queued and land when it is back.
+- **Bux purchases are paid exactly once**, whichever pod the webhook lands on:
+  the webhook answers 2xx only once the purchase is durably recorded, and the
+  buyer's session claims it, credits it into the same profile document, and
+  only then marks it settled.
+- A `profiles.json` left in `ROBOT_DATA_DIR` on a Mongo-backed server is
+  imported on boot, **insert-only**: it can add a missing player and never
+  touches one the database already has.

@@ -6,6 +6,7 @@ import {
   type MoveMessage,
   type RespawnMessage,
   type SetAvatarMessage,
+  type SetAuthTokenMessage,
   type SetIdentityMessage,
   type StageAwardedMessage,
 } from '@robot/shared';
@@ -95,14 +96,22 @@ export class NetworkClient {
   private status: ConnectionStatus = 'idle';
 
   /**
-   * Who this browser is on Bloxity, asked at join time.
+   * The portal's login TOKEN, asked for at join time.
    *
-   * A CALLBACK rather than a stored id: the account can change between one
-   * join and the next, and a value captured at construction would send the
-   * previous player's id after a logout. Kept as a plain function so `net/`
-   * still imports nothing from the portal layer.
+   * The token and never an account id: the server asks Bloxity what the token
+   * means, and an id a browser could name is an id it could name for anybody.
+   * A CALLBACK rather than a stored value, because the login can change
+   * between one join and the next. Kept as a plain function so `net/` still
+   * imports nothing from the portal layer.
    */
-  private identity: (() => string | null) | null = null;
+  private token: (() => string | null) | null = null;
+
+  /**
+   * The token this connection last presented - on the join, or since - so an
+   * unchanged one is not sent again. `undefined` means "nothing presented on
+   * this connection yet"; '' means "presented as signed out".
+   */
+  private sentToken: string | undefined = undefined;
 
   /**
    * The local player's Bloxity look, asked for at JOIN time.
@@ -153,8 +162,21 @@ export class NetworkClient {
     this.room?.send(MessageType.SetIdentity, message);
   }
 
-  setIdentityProvider(provider: () => string | null): void {
-    this.identity = provider;
+  setTokenProvider(provider: () => string | null): void {
+    this.token = provider;
+  }
+
+  /**
+   * The portal login changed mid-session. The room switches this session's
+   * profile in place - no reconnect - and ignores a repeat of the same token,
+   * which is also deduped here so a chatty portal costs nothing.
+   */
+  sendAuthToken(token: string | null): void {
+    if (!this.room) return; // the next join presents the current token anyway
+    const value = token ?? '';
+    if (value === this.sentToken) return;
+    this.sentToken = value;
+    this.room.send(MessageType.SetAuthToken, { token: value } satisfies SetAuthTokenMessage);
   }
 
   /** Where the room should get the player's display name and portrait from. */
@@ -213,11 +235,13 @@ export class NetworkClient {
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
+        const token = this.token?.() ?? '';
         this.room = await this.client.joinOrCreate<NetCourseState>(ROOM_NAME, {
           playerId,
-          // Optional: a signed-out player simply has none, and the room falls
-          // back to the browser-stored id exactly as it always did.
-          bloxityId: this.identity?.() ?? undefined,
+          // Optional: a signed-out player simply has none and plays as this
+          // browser's guest. The server verifies it with Bloxity; nothing here
+          // decides who the player is.
+          token: token || undefined,
           // Sent with the join rather than after it, so players already in the
           // room draw this one correctly from their very first patch.
           avatar: this.look?.() ?? undefined,
@@ -226,6 +250,7 @@ export class NetworkClient {
           // replaced a round trip later.
           identity: this.identityOf?.() ?? undefined,
         });
+        this.sentToken = token;
         break;
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);

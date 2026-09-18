@@ -28,7 +28,8 @@
     "verify:progression": "npm run build:server && node scripts/verify-progression.mjs",
     "verify": "npm run verify:course && npm run verify:barrier && npm run verify:progression",
     "verify:capacity": "node scripts/verify-capacity.mjs",
-    "verify:barrier": "npm run build:shared && node scripts/verify-barrier.mjs"
+    "verify:barrier": "npm run build:shared && node scripts/verify-barrier.mjs",
+    "verify:persistence": "npm run build:server && node scripts/verify-persistence.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

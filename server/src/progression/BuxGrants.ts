@@ -1,4 +1,6 @@
+import type { GrantRecord } from '../persistence/index.js';
 import { logger } from '../util/logger.js';
+import { profileStore } from './ProfileStore.js';
 
 const SCOPE = 'bux';
 
@@ -23,74 +25,65 @@ const SKU_WINS: Readonly<Record<string, number>> = {
 /** SKUs that grant something other than Wins, so they are not "unknown". */
 const KNOWN_NON_WINS = new Set(['speed_boost_1h']);
 
-/** One purchase, waiting for its player to be somewhere it can be applied. */
-export interface PendingGrant {
-  readonly transactionId: string;
-  readonly sku: string;
-  readonly wins: number;
-}
-
 /**
- * Purchases that have been paid for and not yet handed over.
+ * Purchases that have been paid for and not yet handed over - DURABLY, in the
+ * same store as the profiles, and shared by every pod.
  *
- * A QUEUE rather than a direct write, and that is the whole design. The
- * webhook arrives on the HTTP thread at a moment of Bloxity's choosing; the
- * player may be live in a room with their Wins held in replicated state that
- * the autosave will write over the stored profile a few seconds later.
- * Crediting the stored profile directly would therefore be a credit that
- * vanishes on the next save. So the webhook only ever RECORDS, and the room
- * applies what is waiting - on join, and on a slow timer for a player who was
- * already in when they bought something.
+ * It used to be two in-memory collections. That lost every unclaimed purchase
+ * on a restart, a deploy or an idle scale-to-zero, and it could not work across
+ * pods at all: Bloxity load-balances webhooks over the game's live pods, so a
+ * purchase routinely arrives on a pod the buyer is not connected to.
  *
- * Transaction ids are remembered so a webhook Bloxity retries - which it will,
- * if this server was slow to answer - pays out once.
+ * The lifecycle of one purchase, and why it is paid EXACTLY ONCE:
+ *
+ *  1. RECORD - the webhook stores it under its transaction id, which is
+ *     unique, so a retried webhook is recognised and not paid twice. Only once
+ *     it is durable does the webhook answer 2xx.
+ *  2. CLAIM - the buyer's session atomically takes it on a short lease. Two
+ *     pods can never hold the same grant at once.
+ *  3. APPLY - Wins go on through the wallet, and the transaction id goes into
+ *     the SAME profile document as the Wins, in the same write.
+ *  4. SETTLE - only after that profile write is durable. A pod that dies
+ *     between claim and settle simply lets the lease expire; the grant is
+ *     claimed again, and the transaction id already in the profile (if the
+ *     write did land) stops it being applied a second time.
  */
 class BuxGrants {
-  /** Queued grants, by Bloxity user id. */
-  private readonly pending = new Map<string, PendingGrant[]>();
-  /** Every transaction already accepted, so a retry is not a second payout. */
-  private readonly seen = new Set<string>();
-
   /**
-   * Record a paid purchase.
+   * Record a paid purchase against the buyer's Bloxity account.
    *
-   * @returns false only if this transaction was already recorded.
+   * THROWS if it could not be made durable, and the webhook must then answer
+   * non-2xx so Bloxity retries. The retry is then either recorded or, if the
+   * first write did land after all, recognised as a duplicate.
    */
-  record(bloxityId: string, transactionId: string, sku: string): boolean {
-    if (!bloxityId || !transactionId) return false;
-    if (this.seen.has(transactionId)) {
-      logger.info(SCOPE, `duplicate webhook for ${transactionId}, ignored`);
-      return false;
-    }
-    this.seen.add(transactionId);
-
+  async record(accountId: string, transactionId: string, sku: string): Promise<'recorded' | 'duplicate'> {
     const wins = SKU_WINS[sku] ?? 0;
     if (wins === 0 && !KNOWN_NON_WINS.has(sku)) {
       logger.warn(SCOPE, `unknown sku "${sku}" - nothing to grant`);
     }
-
-    const queue = this.pending.get(bloxityId) ?? [];
-    queue.push({ transactionId, sku, wins });
-    this.pending.set(bloxityId, queue);
-    logger.info(
-      SCOPE,
-      `queued ${sku} (+${wins} wins) for ${bloxityId} [${transactionId}]`,
-    );
-    return true;
+    const outcome = await profileStore.grants.record({
+      transactionId,
+      accountId,
+      sku,
+      wins,
+      createdAt: Date.now(),
+    });
+    if (outcome === 'duplicate') {
+      logger.info(SCOPE, `duplicate webhook for ${transactionId}, ignored`);
+    } else {
+      logger.info(SCOPE, `recorded ${sku} (+${wins} wins) for ${accountId} [${transactionId}]`);
+    }
+    return outcome;
   }
 
-  /** Take everything waiting for a player. Empties the queue. */
-  drain(bloxityId: string): PendingGrant[] {
-    if (!bloxityId) return [];
-    const queue = this.pending.get(bloxityId);
-    if (!queue || queue.length === 0) return [];
-    this.pending.delete(bloxityId);
-    return queue;
+  /** Atomically take everything waiting for a VERIFIED account. */
+  claim(accountId: string, claimer: string): Promise<GrantRecord[]> {
+    return profileStore.grants.claim(accountId, claimer);
   }
 
-  /** True if anyone at all is owed something, so the tick can skip the work. */
-  get hasPending(): boolean {
-    return this.pending.size > 0;
+  /** Mark grants paid for good. Only after the profile holding them is durable. */
+  settle(transactionIds: readonly string[]): Promise<void> {
+    return profileStore.grants.settle(transactionIds);
   }
 }
 

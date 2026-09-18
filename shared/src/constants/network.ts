@@ -101,6 +101,13 @@ export const MessageType = {
    * signing in mid-session renames the player everywhere without a reload.
    */
   SetIdentity: 'setIdentity',
+  /**
+   * The portal login CHANGED mid-session - signed in, signed out, or switched
+   * account. Carries the new TOKEN (empty for a sign-out), never an account
+   * id: the server verifies it with Bloxity and switches this session's
+   * profile in place, without a reconnect.
+   */
+  SetAuthToken: 'setAuthToken',
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];

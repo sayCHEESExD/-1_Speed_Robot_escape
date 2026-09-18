@@ -147,10 +147,38 @@ const handleBuxWebhook = async (
     return;
   }
 
-  buxGrants.record(body.userId, body.transactionId, body.sku);
-  logger.info(
-    SCOPE,
-    `accepted ${body.sku} for ${body.username ?? body.userId} [${body.transactionId}]`,
-  );
-  reply(200, { ok: true, transactionId: body.transactionId });
+  /*
+   * 2xx ONLY ONCE IT IS DURABLE.
+   *
+   * This used to answer 200 the moment the grant was in memory - so a restart,
+   * a deploy or an idle scale-to-zero between the webhook and the buyer's next
+   * join lost a purchase Bloxity had already been told was delivered. Now the
+   * grant is written to the shared store first. If that fails the answer is
+   * 503, and Bloxity retries: the retry is either recorded, or recognised as a
+   * duplicate of a write that did land after all - so it is paid exactly once
+   * either way.
+   *
+   * `userId` is Bloxity's own id for the buyer, from Bloxity, server to
+   * server. It is the only account id this game trusts that did not come
+   * through a verified token.
+   */
+  try {
+    const outcome = await buxGrants.record(
+      String(body.userId),
+      String(body.transactionId),
+      String(body.sku),
+    );
+    logger.info(
+      SCOPE,
+      `${outcome} ${body.sku} for ${body.username ?? body.userId} [${body.transactionId}]`,
+    );
+    reply(200, { ok: true, transactionId: body.transactionId });
+  } catch (error) {
+    logger.error(
+      SCOPE,
+      `could not record ${body.transactionId} durably; answering 503 so Bloxity retries: ` +
+        String(error instanceof Error ? error.message : error),
+    );
+    reply(503, { ok: false, error: 'storage unavailable, retry' });
+  }
 };

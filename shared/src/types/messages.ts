@@ -123,6 +123,16 @@ export interface SetAvatarMessage {
  * bounds it and refuses a portrait that is not on Bloxity's own CDN. Nothing
  * here decides anything - it is drawn, never trusted with a reward.
  */
+/**
+ * A login change on a live session.
+ *
+ * The TOKEN, never an account id - an account id sent by a browser is a claim
+ * anybody can make. Empty means signed out.
+ */
+export interface SetAuthTokenMessage {
+  token: string;
+}
+
 export interface SetIdentityMessage {
   displayName: string;
   avatarUrl: string;

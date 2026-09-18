@@ -531,11 +531,97 @@ Procedural, and required for the finished game — not a placeholder.
   death, a stage banked, a rebirth, a fresh join — puts the player at
   `SPAWN_POSITION` and nowhere else. `CourseRoom.placeAt` takes no position for
   exactly that reason.
-- Persistence sits behind `PersistenceAdapter`. `createPersistence` is the ONLY
-  place naming a concrete adapter.
 - Only the DERIVING facts are persisted (Speed, Wins, owned mechs, rebirths,
   best stage). Level, movement speed and the equipped mech are recomputed on
   load through the same formulas a live session uses.
+
+## Persistence
+
+**A signed-in player's progress lives on their Bloxity ACCOUNT; a guest's lives
+in this browser.** On Legion the store is MongoDB and progress survives
+restarts, scale-to-zero and deploys. Nothing may claim otherwise.
+
+- **`createStorage` in `server/src/persistence/index.ts` is the ONLY place
+  naming a concrete store**: `MONGODB_URI` set means `MongoStore`, unset means
+  `JsonStore` (development only). Both implement one PER-KEY contract -
+  `get`, `put`, `insertIfAbsent`, `markMigrated`, `loadAll`, `importLegacy` -
+  and there is no whole-map snapshot write anywhere, because several pods
+  share one database and a snapshot would write other pods' players back.
+- **A PROFILE IS READ AT JOIN TIME**, in `onAuth`, never from a copy cached at
+  boot: another pod may have saved that player a second ago. The only cache
+  is the leaderboard's, refreshed every minute, newer `updatedAt` winning.
+- **A FAILED READ THROWS, AND THE JOIN IS REFUSED** (`ServerError` 4105).
+  Letting a player in on an empty profile would have their first autosave
+  overwrite the real one. The client's join backoff retries.
+- **WRITES NEVER DROP.** `WriteQueue` keeps the LATEST snapshot per key and
+  retries on a backoff until it lands. Mongo writes are idempotent
+  `updateOne($set, upsert)`; `$unset` only ever names `CLEARABLE_FIELDS`, and a
+  field this build does not know survives every save (`profileFields.ts`).
+- **The JSON store writes atomically** (temp file, fsync, rename), promotes a
+  complete leftover `.tmp`, and MOVES a corrupt file aside rather than
+  overwriting it.
+- **Boot never waits for the database.** `/health` answers with Mongo down;
+  joins are refused until it is back.
+- **SHUTDOWN IS OURS, NOT COLYSEUS'S.** The `Server` is built with
+  `gracefullyShutdown: false`, because Colyseus's own SIGTERM handler calls
+  `process.exit` before queued saves land. `index.ts` runs
+  `gracefullyShutdown(false)`, then awaits `profileStore.shutdown` (flush,
+  close), then exits.
+- A `profiles.json` in the data dir of a Mongo-backed pod is imported on boot
+  with `$setOnInsert` only - it can add a player, never overwrite one - and
+  never imports a key in the account space.
+
+### Identity
+
+- **THE CLIENT SENDS THE PORTAL TOKEN, NEVER AN ACCOUNT ID** - in the join
+  options, and again as `SetAuthToken` when the login changes mid-session
+  (deduped on the client). There is no join option or message that names an
+  account, and nothing - including Bux fulfilment - trusts one from a browser.
+- **`BloxityAuth` asks Bloxity, always.** `VERIFY_URL` is a CONSTANT, not
+  configuration. The token is never verified locally: `JWT_SECRET` is the
+  GAME's secret, not Bloxity's. Only `exp` is read from the token, and only to
+  SHORTEN the cache.
+- **Three outcomes, fail closed.** `verified` needs a 2xx carrying a non-empty
+  string `_id`. 401/403 is `rejected` (a guest). Anything else - timeout, 5xx,
+  a 2xx without an id - is `unavailable`: a guest FOR NOW, re-verified on a
+  backoff and moved onto the account in place the moment it succeeds. Never a
+  permanent demotion. Verified is cached up to 5 minutes capped at `exp`,
+  rejected 30 seconds, unavailable NEVER; keyed by a hash of the token.
+- **Keys**: an account is `bloxity:<accountId>`; a guest is its browser id.
+  `sanitizeBrowserId` refuses anything in the `bloxity:` space (any case),
+  anything with `~`, and anything that is not a short plain token - a refused
+  id plays EPHEMERAL, nothing restored and nothing saved.
+- **FIRST LOGIN MIGRATES, ONCE.** An account that has a profile ALWAYS wins
+  and browser data never touches it. Otherwise guest progress - the LIVE state
+  when signing in mid-session - seeds the account through `insertIfAbsent`
+  (with `migratedFrom`); ONLY after that succeeds is the guest marked
+  `migratedTo`, and it is kept as a recovery copy. A `migratedTo` guest is
+  never restored, never migrated again and never on a board; signing out after
+  a migration gives a fresh guest at `<browserId>~2` (then `~3`...). An empty
+  guest is not migrated. Losing an insert race means loading the winner.
+- **A LOGIN CHANGE IS A SWITCH ON THE LIVE SESSION, NOT A RECONNECT**
+  (`CourseRoom.applyLogin`): autosaves for that session blocked, the profile
+  being LEFT saved and awaited, the new one read, the fields reset and
+  restored, the same service initialisation order as `onJoin`, grants
+  re-applied, the player placed at spawn, saved. If storage fails at any step
+  the session STAYS on the profile it had. Only the newest login counts; one
+  arriving mid-switch is queued.
+
+### Bux purchases
+
+- **Every purchase is paid EXACTLY ONCE, across pods and restarts.** The
+  webhook is load-balanced over the game's pods, so the buyer is usually not
+  on the pod that receives it. `BuxGrants.record` stores it under its unique
+  transaction id and the webhook answers 2xx ONLY once that is durable (503
+  otherwise, so Bloxity retries; a retried id is a recognised duplicate).
+- The buyer's session CLAIMS grants atomically on a lease, credits them
+  through `wallet.add`, writes the transaction ids into the SAME profile
+  document as the Wins (`appliedGrants`), and SETTLES only after that save is
+  durable. A crash in between re-claims; `appliedGrants` stops a double pay.
+- Grants go ONLY to a VERIFIED account. A live session polls for them every
+  `GRANT_POLL_SECONDS`.
+- The SKU table (`SKU_WINS`) is the game's catalogue half. Do not change the
+  SKU values.
 
 ## Multiplayer
 
@@ -750,9 +836,12 @@ currency. Exposed as `window.Legion.SDK`, loaded from a CDN script in
 - The user object is never cached. `getUser()` is asked each time.
 - **Bux are server-authoritative.** The client passes a SKU and NEVER a price.
   The webhook is `POST /bloxity/bux`; **answering 2xx is the contract**, so an
-  unrecognised SKU still returns 200 and is logged. Fulfilment QUEUES through
-  `BuxGrants` rather than writing, because the webhook arrives on the HTTP
-  thread while the player may be live.
+  unrecognised SKU still returns 200 and is logged - but 2xx is only ever sent
+  once the purchase is DURABLY recorded (see Persistence -> Bux purchases).
+  The webhook's `userId` is TAKEN to be the buyer's account `_id` - the same id
+  the token verify returns - and grants are keyed by it. That equality has not
+  been confirmed against a live purchase; if a real one never arrives, check
+  it first.
 - **A player is drawn as their real Bloxity avatar, local and remote alike.**
   Bloxity's `player.glb` carries the twelve bone names `PlayerRig` binds.
 - `AvatarDresser` is the ONE thing that decides which body a rider has, shared
@@ -887,6 +976,14 @@ Do not claim something works without running it.
 - `npm run verify:assets` digests the supplied files.
 - `npm run verify:capacity` needs a RUNNING server, which is why it is not part
   of `verify`.
+- `npm run verify:persistence` runs the BUILT server as a real process against
+  real clients and reads storage directly. It stubs ONLY Bloxity's verify URL,
+  through `scripts/persistence/stub-bloxity.mjs` preloaded with
+  `node --import` - there must never be a test switch in production code. JSON
+  store always; `MONGOD_BINARY` adds Mongo with the outage tests;
+  `MONGODB_URI` runs against that database AND WIPES IT. Run it after touching
+  anything in `persistence/`, `auth/`, `ProfileStore`, `BuxGrants` or the join
+  and login-switch paths in `CourseRoom`.
 - Browser behaviour must be checked in a real browser.
 
 When driving the game from the browser console for a test, note that the window
