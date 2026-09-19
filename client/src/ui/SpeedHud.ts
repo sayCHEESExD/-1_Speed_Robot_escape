@@ -404,10 +404,19 @@ body.aoe-touch-mode .mech-hud {
 @media (orientation: landscape) and (max-height: 500px) {
   body.aoe-touch-mode .mech-hud {
     bottom: max(8px, env(safe-area-inset-bottom, 0px));
-    width: min(
-      460px,
-      calc(100vw - var(--aoe-stick-zone, 150px) - var(--aoe-jump-zone, 130px) - 48px)
-    );
+    /*
+     * Laid INTO the gap rather than centred on the screen: the two zones are
+     * not the same width (the stick's is the wider, and wider still now that
+     * it steps right of the rail), so a block centred on the viewport reaches
+     * into the larger one first. Both edges are pinned, the width is capped,
+     * and the auto margins centre it in whatever is left.
+     */
+    left: calc(var(--aoe-stick-zone, 150px) + 12px);
+    right: calc(var(--aoe-jump-zone, 130px) + 12px);
+    transform: none;
+    width: auto;
+    max-width: 460px;
+    margin-inline: auto;
     padding: 5px 12px 7px;
   }
   body.aoe-touch-mode .mech-hud__head { margin-bottom: 4px; gap: 8px; }

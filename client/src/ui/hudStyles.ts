@@ -1051,37 +1051,55 @@ body.aoe-touch-mode .aoe-rail { --aoe-rail: 62px; }
 @media (orientation: landscape) and (max-height: 500px) {
   /* The space the left thumb owns, measured from the left edge. */
   body.aoe-touch-mode {
+    /*
+     * How far the RESTING stick steps right, so the rail column and the stick
+     * never share the left edge: the rail's 10px gutter and 44px plate, a 12px
+     * gap, less the 26px the stick already stands off the edge. The touch layer
+     * reads this; a stick that floats to a touch point is unaffected.
+     */
+    --aoe-stick-inset: 40px;
+    /* Kept clear above AND below the rail, so it centres on the true middle. */
+    --aoe-rail-reserve: 10px;
     --aoe-stick-zone: calc(
-      26px + env(safe-area-inset-left, 0px) + var(--aoe-stick-radius, 64px) * 2
+      26px + env(safe-area-inset-left, 0px) + var(--aoe-stick-inset) +
+        var(--aoe-stick-radius, 64px) * 2
     );
     --aoe-jump-zone: calc(24px + env(safe-area-inset-right, 0px) + var(--aoe-jump-size, 88px));
   }
 
   /*
-   * THE RAIL LIES DOWN WHEN THE SCREEN IS TOO SHORT TO STAND IT UP.
+   * THE RAIL IS A COLUMN AT THE LEFT MIDDLE, on every landscape phone.
    *
-   * Four stacked tiles are 200 tall and the stick owns the bottom-left corner,
-   * so on a short landscape phone a vertical rail has nowhere to be: it ran off
-   * the top and the bottom of the screen AND sat on top of the stick, which is
-   * what was reported. Wrapped into a ROW along the top strip it clears the
-   * stick by the height of the picture and uses space that is otherwise dead.
+   * One place, whatever the screen: where a thumb resting on the left edge
+   * finds it without looking. It used to lie down as a row along the top
+   * strip on short screens and cross to the top-RIGHT inside the portal, so
+   * the same four buttons lived in three places depending on the phone.
    *
-   * The column is still the rail's real shape, and the rule below restores it
-   * the moment there is height for it. The threshold is not a taste: a tile is
-   * 44, four of them with three 8px gaps is 200, the stick's radius is
-   * clamp(46px, 0.15 * vmin, 84px) and in landscape vmin IS the height - so
-   * the column fits exactly when h - 56 - 0.3h is at least 200, which is 366.
-   * 380 is that figure with a margin.
+   * Two things make the column fit where it once could not:
+   *  - the STICK steps right of it (--aoe-stick-inset above), so the column
+   *    and the stick no longer compete for the same strip of the left edge;
+   *  - the plates SHRINK to the height available. Four plates and three 8px
+   *    gaps have to fit between the two reserves, so a plate is
+   *    (h - 2 * reserve - 24) / 4, capped at 44 and never below 30. At 44 on
+   *    most phones; it only gives way on the shortest, or under the portal's
+   *    bar, whose band is reserved at BOTH ends so the column stays centred.
    */
   body.aoe-touch-mode .aoe-rail {
-    --aoe-rail: 44px;
-    top: max(10px, env(safe-area-inset-top, 0px));
+    --aoe-rail: clamp(30px, calc((100vh - 2 * var(--aoe-rail-reserve) - 24px) / 4), 44px);
+    top: 50%;
     left: max(10px, env(safe-area-inset-left, 0px));
-    transform: none;
+    right: auto;
+    transform: translateY(-50%);
     gap: 8px;
-    flex-wrap: wrap;
-    /* One tile tall, so every tile wraps into its own column: a row. */
-    max-height: var(--aoe-rail);
+    flex-wrap: nowrap;
+    max-height: none;
+  }
+  /* The height the browser actually shows, where it can say so: 100vh on a
+     phone includes the toolbar it has not hidden yet. */
+  @supports (height: 100dvh) {
+    body.aoe-touch-mode .aoe-rail {
+      --aoe-rail: clamp(30px, calc((100dvh - 2 * var(--aoe-rail-reserve) - 24px) / 4), 44px);
+    }
   }
   /*
    * The designations go. They are wider than the plates they name, so in a row
@@ -1142,46 +1160,16 @@ body.aoe-portal-embedded {
 }
 
 /*
- * EMBEDDED AND SHORT: the rail crosses to the top-RIGHT.
+ * EMBEDDED: the column keeps clear of the portal's bar.
  *
- * On a landscape phone inside the portal the left edge is gone twice over -
- * the portal's bar has the top of it and the steering stick has the bottom -
- * and what is between them is not enough to put a row of controls in without
- * crowding one or the other. Dropping the rail just under the bar left it
- * fourteen pixels off the stick, which is not a gap anybody can aim inside.
- *
- * The top-right strip is the one piece of the screen nothing else claims: the
- * Wins housing is centred, the account button is a short chip above, and the
- * action button is far below at the bottom. The rail goes there, still a row,
- * and clears everything by tens of pixels rather than by ten.
- *
- * The height it switches back at is arithmetic, like the other one: under the
- * bar the column would have h - 58 - 6 - 26 - 0.3h - 20 to live in and needs
- * 200, so it fits from 443 up. 450 is that with a margin.
+ * Bloxity's bar owns the top-left, so the rail reserves the band's height at
+ * BOTH ends of the screen rather than just the top - it stays centred on the
+ * middle, and the plates give way instead of the column sliding down onto the
+ * stick.
  */
-@media (orientation: landscape) and (max-height: 449px) {
-  body.aoe-portal-embedded.aoe-touch-mode .aoe-rail {
-    left: auto;
-    right: max(10px, env(safe-area-inset-right, 0px));
-    /* Under the account chip, which is the only thing above it. */
-    top: 50px;
-    flex-wrap: wrap;
-    max-height: var(--aoe-rail);
-  }
-}
-/* Narrow as well: a row of four would reach the centred tally. */
-@media (orientation: landscape) and (max-height: 449px) and (max-width: 560px) {
-  body.aoe-portal-embedded.aoe-touch-mode .aoe-rail {
-    max-height: calc(var(--aoe-rail) * 2 + 8px);
-  }
-}
-/*
- * Embedded and tall enough for the column: it stays on the left where it
- * belongs, and simply starts below the portal's band.
- */
-@media (orientation: landscape) and (min-height: 450px) and (max-height: 500px) {
-  body.aoe-portal-embedded.aoe-touch-mode .aoe-rail {
-    top: calc(var(--aoe-portal-top) + 12px);
+@media (orientation: landscape) and (max-height: 500px) {
+  body.aoe-portal-embedded.aoe-touch-mode {
+    --aoe-rail-reserve: calc(var(--aoe-portal-top) + 8px);
   }
 }
 
@@ -1200,34 +1188,6 @@ body.aoe-portal-embedded {
 @media (max-width: 580px) {
   body.aoe-portal-embedded .aoe-wins {
     top: calc(var(--aoe-portal-top) + 6px);
-  }
-}
-
-/*
- * Tall enough to stand the rail back up: it is a COLUMN down the left again,
- * which is where it belongs and where a returning player looks for it.
- */
-@media (orientation: landscape) and (min-height: 380px) and (max-height: 500px) {
-  body.aoe-touch-mode .aoe-rail {
-    flex-wrap: nowrap;
-    max-height: none;
-  }
-}
-
-/*
- * NARROW as well as short: the row does not fit beside the tally either.
- *
- * A row of four is 200 wide and the Wins housing is centred on the same strip,
- * so below about 500 the two meet in the middle - three pixels of overlap at
- * 480, which is a collision like any other. Two by two is 96 wide and clears
- * it with room to spare, and there is height for a second rank precisely
- * because this branch only runs on screens too short for the full column.
- *
- * 520 rather than 500: the tally grows with the number in it.
- */
-@media (orientation: landscape) and (max-height: 379px) and (max-width: 520px) {
-  body.aoe-touch-mode .aoe-rail {
-    max-height: calc(var(--aoe-rail) * 2 + 8px);
   }
 }
 `;
