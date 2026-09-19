@@ -407,7 +407,9 @@ const injectStyles = (): void => {
 .aoe-touch__stick {
   --aoe-stick-radius: 64px;
   position: fixed;
-  left: calc(var(--aoe-safe-l, 0px) + 26px + var(--aoe-stick-radius));
+  /* --aoe-stick-inset is the HUD's: on a landscape phone the rail stands in a
+     column down the left edge, and the resting stick steps right to clear it. */
+  left: calc(var(--aoe-safe-l, 0px) + 26px + var(--aoe-stick-inset, 0px) + var(--aoe-stick-radius));
   top: auto;
   bottom: calc(var(--aoe-safe-b, 0px) + 26px);
   width: calc(var(--aoe-stick-radius) * 2);

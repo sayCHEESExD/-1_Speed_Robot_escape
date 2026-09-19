@@ -696,20 +696,25 @@ the clearest sign it was assembled from another game.
   is 290 tall and does not fit at all, and the telemetry block's portrait
   offset - lifted 128px to clear thumb controls that sit along the bottom of a
   PORTRAIT screen - put the readout across the middle of the picture. Shrinking
-  everything fixes neither. The rail WRAPS into a row along the top strip and
-  the block goes back to the bottom edge, where the stick and the action button
-  have left the middle of that edge empty.
-- **THE RAIL STANDS BACK UP WHEN THERE IS HEIGHT FOR IT**, and the threshold is
-  arithmetic rather than taste: a tile is 44, four with three 8px gaps is 200,
-  the stick's radius is `clamp(46px, 0.15 * vmin, 84px)` and in landscape vmin
-  IS the height - so the column fits exactly when `h - 56 - 0.3h >= 200`, which
-  is 366. The rule uses 380. It wraps to 2x2 instead of a row below 520 wide,
-  because a row of four and the centred Wins housing meet in the middle there.
+  everything fixes neither. The telemetry block goes back to the bottom edge,
+  where the stick and the action button have left the middle of that edge
+  empty.
+- **THE RAIL IS A COLUMN AT THE LEFT MIDDLE ON EVERY LANDSCAPE PHONE**, in the
+  portal or out of it - one place, where a resting thumb finds it. Two things
+  make it fit: the RESTING stick steps right of it (`--aoe-stick-inset`, set by
+  the HUD and read by `TouchControls`; a stick that floats to a touch point is
+  unaffected), and the plates SHRINK to the height available -
+  `(h - 2 * --aoe-rail-reserve - 24) / 4`, capped at 44 and never under 30.
+  The reserve is 10px, or the portal's band plus 8 when embedded, held at BOTH
+  ends so the column stays on the true middle rather than sliding onto the
+  stick. It used to lie down as a row along the top on short screens and cross
+  to the top-right inside the portal: three homes for the same four buttons.
 - **THE HUD LAYS OUT AROUND THE THUMB CONTROLS FROM THEIR REAL FIGURES.**
   `TouchControls` publishes `--aoe-stick-radius` on the root (it is computed in
   JS from `vmin`, so CSS cannot derive it) and `--aoe-jump-size` in its own
-  stylesheet. The telemetry block's width is the viewport less both control
-  zones; the rail's height is what is left above the stick. Every one of those
+  stylesheet. In landscape the telemetry block is pinned INTO the gap between
+  the two control zones (both edges set, width capped, auto margins) rather
+  than centred on the screen, because the zones are not the same width. Every one of those
   numbers used to be a guess, and a guess is wrong on some phone.
 - **Inside the Bloxity portal the top-left corner is not ours.** Bloxity draws
   its own bar there - account, menu, chat - over our frame. It is outside this
@@ -717,13 +722,6 @@ the clearest sign it was assembled from another game.
   `Game.startBloxity` sets `body.aoe-portal-embedded` from `Bloxity.embedded`
   and the stylesheet RESERVES a band (`--aoe-portal-top`, `--aoe-portal-left`)
   that nothing the game owns goes under.
-- **Embedded and landscape, the rail crosses to the top-RIGHT.** The left edge
-  is gone twice over - the portal's bar has the top of it and the steering
-  stick has the bottom - and what is between them is fourteen pixels, which is
-  not a gap anybody can aim inside. The top-right strip is the one piece of the
-  screen nothing else claims, and the rail clears everything there by tens of
-  pixels. It returns to the left, under the band, from 450 high: under the bar
-  the column has `h - 58 - 12 - 26 - 0.3h - 20` to live in and needs 200.
 - **The Wins housing drops below the band on a narrow screen.** It is centred,
   so on a wide one it is nowhere near the corner - but the band is 248 across
   and a housing centred on a 480-wide phone starts at 207. Below 580 it takes
